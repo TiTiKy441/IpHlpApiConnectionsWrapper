@@ -28,6 +28,7 @@ public class IpHelpApiWrapper
         lock (_bufferLockObject)
         {
             _buffer = Marshal.ReAllocHGlobal(_buffer, (IntPtr)newSize);
+            BufferSize = newSize;
         }
     }
 
