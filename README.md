@@ -12,4 +12,4 @@ Three available methods:
    Retrieves information about all tcp connections owned by processes in the specified network layer (unspecified/ipv4/ipv6)
 5. `GetAllUdpConnections(NetworkType network)`
 
-   Retrieves information about all tcp connections owned by processes in the specified network layer (unspecified/ipv4/ipv6)
+   Retrieves information about all udp connections owned by processes in the specified network layer (unspecified/ipv4/ipv6)
