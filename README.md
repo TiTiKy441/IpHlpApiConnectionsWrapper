@@ -3,7 +3,7 @@ This is a C# wrapper for iphlpapi.dll
 
 It was made for the purpose of retrieving all TCP/UDP process connections as fast as possible
 
-Three available methods:
+Available functions and methods:
 1. `SetBufferSize(int newSize)`
    
    Sets buffer size. Reallocates internal buffer for storing data between iphlpapi.dll and the wrapper.
