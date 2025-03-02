@@ -1,6 +1,13 @@
 using System.Net;
 using System.Runtime.InteropServices;
 
+/**
+     * Fast iphlpapi.dll wrapper for getting all tcp and udp connections
+     * 
+     * Only one call at a time, cant call from other threads if the wrapper is busy
+     * 
+     * By default the size of the Buffer to store the results of external calls is 1 mb
+     **/
 public class IpHelpApiWrapper
 {
 
@@ -23,6 +30,19 @@ public class IpHelpApiWrapper
             _buffer = Marshal.ReAllocHGlobal(_buffer, (IntPtr)newSize);
             BufferSize = newSize;
         }
+    }
+
+    #region TCP Functions
+
+    public static List<ITcpRecord> GetTcpTable(NetworkType networkType, bool sortedOrder, TcpTableClass tcpTable)
+    {
+        return networkType switch
+        {
+            NetworkType.AF_INET => GetTcp4Connections(sortedOrder, tcpTable).Cast<ITcpRecord>().ToList(),
+            NetworkType.AF_INET6 => GetTcp6Connections(sortedOrder, tcpTable).Cast<ITcpRecord>().ToList(),
+            NetworkType.AF_INET_UNSPEC => throw new ArgumentException("Invalid argument: networkType doesnt support AF_INET_UNSPEC"),
+            _ => throw new ArgumentException("Invalid argument: networkType"),
+        };
     }
 
     #region TCP4 Functions
@@ -83,6 +103,7 @@ public class IpHelpApiWrapper
     #endregion
 
     #region GetModuleTcp4Connections()
+
     public static List<Tcp4ModuleRecord> GetModuleTcp4Connections(bool sortedOrder = true, TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL)
     {
         if (!(tcpTable is TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL or TcpTableClass.TCP_TABLE_OWNER_MODULE_CONNECTIONS or TcpTableClass.TCP_TABLE_OWNER_MODULE_LISTENER)) throw new ArgumentException("GetModuleTcp4Connections() supports only modules");
@@ -173,6 +194,130 @@ public class IpHelpApiWrapper
     #endregion
 
     #endregion
+
+    #region TCP6 Functions
+
+    public static List<Tcp6Record> GetTcp6Connections(bool sortedOrder = true, TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_OWNER_PID_ALL)
+    {
+        return tcpTable switch
+        {
+            TcpTableClass.TCP_TABLE_BASIC_ALL or TcpTableClass.TCP_TABLE_BASIC_LISTENER or TcpTableClass.TCP_TABLE_BASIC_CONNECTIONS => throw new InvalidOperationException("GetTcp6Connections() doesnt support TcpTableClass.TCP_TABLE_BASIC_*"),
+            TcpTableClass.TCP_TABLE_OWNER_PID_ALL or TcpTableClass.TCP_TABLE_OWNER_PID_LISTENER or TcpTableClass.TCP_TABLE_OWNER_PID_CONNECTIONS => GetProcessTcp6Connections(sortedOrder, tcpTable).Cast<Tcp6Record>().ToList(),
+            TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL or TcpTableClass.TCP_TABLE_OWNER_MODULE_LISTENER or TcpTableClass.TCP_TABLE_OWNER_MODULE_CONNECTIONS => GetModuleTcp6Connections(sortedOrder, tcpTable).Cast<Tcp6Record>().ToList(),
+            _ => throw new ArgumentException("Invalid argument: tcpTable"),
+        };
+    }
+
+    #region GetProcessTcp6Connections()
+
+    public static List<Tcp6ProcessRecord> GetProcessTcp6Connections(bool sortedOrder = true, TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_OWNER_PID_ALL)
+    {
+        if (!(tcpTable is TcpTableClass.TCP_TABLE_OWNER_PID_ALL or TcpTableClass.TCP_TABLE_OWNER_PID_CONNECTIONS or TcpTableClass.TCP_TABLE_OWNER_PID_LISTENER)) throw new ArgumentException("GetProcessTcp6Connections() supports only processes");
+
+        int bufferSize = BufferSize;
+
+        lock (_bufferLockObject)
+        {
+            uint errorCode = GetExtendedTcpTable(_buffer, ref bufferSize, sortedOrder, (int)NetworkType.AF_INET6, tcpTable);
+
+            HandleErrorCode(errorCode);
+
+            return CreateTcp6ProcessRecordListFromIntPtr((IntPtr)((long)_buffer + 4), GetCurrentEntriesNum());
+        }
+    }
+
+    private static List<Tcp6ProcessRecord> CreateTcp6ProcessRecordListFromIntPtr(IntPtr pointer, int num)
+    {
+        int singleSize = 56;
+
+        List<Tcp6ProcessRecord> records = new(num);
+
+        byte[] managedArray = new byte[singleSize * num];
+        Marshal.Copy(pointer, managedArray, 0, singleSize * num);
+        for (int i = 0; i < num * singleSize; i += singleSize)
+        {
+            records.Add(new
+                (
+                    localAddress: managedArray[(i + 0)..(i + 16)],
+                    localScopeId: BitConverter.ToUInt32(managedArray, i + 16),
+                    localPort: GetPortFromBytes(managedArray[(i + 20)..(i + 24)]),
+                    remoteAddress: managedArray[(i + 24)..(i + 40)],
+                    remoteScopeId: BitConverter.ToUInt32(managedArray, i + 40),
+                    remotePort: GetPortFromBytes(managedArray[(i + 44)..(i + 48)]),
+                    state: (MibState)BitConverter.ToUInt32(managedArray, i + 48),
+                    processId: BitConverter.ToInt32(managedArray, i + 52)
+                )
+            );
+        }
+        return records;
+    }
+
+    #endregion
+
+    #region GetModuleTcp6Connections()
+
+    public static List<Tcp6ModuleRecord> GetModuleTcp6Connections(bool sortedOrder = true, TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL)
+    {
+        if (!(tcpTable is TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL or TcpTableClass.TCP_TABLE_OWNER_MODULE_CONNECTIONS or TcpTableClass.TCP_TABLE_OWNER_MODULE_LISTENER)) throw new ArgumentException("GetModuleTcp6Connections() supports only modules");
+
+        int bufferSize = BufferSize;
+
+        lock (_bufferLockObject)
+        {
+            uint errorCode = GetExtendedTcpTable(_buffer, ref bufferSize, sortedOrder, (int)NetworkType.AF_INET6, tcpTable);
+
+            HandleErrorCode(errorCode);
+
+            return CreateTcp6ModuleRecordListFromIntPtr((IntPtr)((long)_buffer + 8), GetCurrentEntriesNum(), bufferSize - 4);
+        }
+    }
+
+    private static List<Tcp6ModuleRecord> CreateTcp6ModuleRecordListFromIntPtr(IntPtr pointer, int num, int allocatedSize)
+    {
+        int singleSize = 192;
+
+        List<Tcp6ModuleRecord> records = new(num);
+
+        byte[] managedArray = new byte[allocatedSize];
+        Marshal.Copy(pointer, managedArray, 0, allocatedSize);
+        for (int i = 0; i < num * singleSize; i += singleSize)
+        {
+            records.Add(new
+                (
+                    localAddress: managedArray[(i + 0)..(i + 16)],
+                    localScopeId: BitConverter.ToUInt32(managedArray, i + 16),
+                    localPort: GetPortFromBytes(managedArray[(i + 20)..(i + 24)]),
+                    remoteAddress: managedArray[(i + 24)..(i + 40)],
+                    remoteScopeId: BitConverter.ToUInt32(managedArray, i + 40),
+                    remotePort: GetPortFromBytes(managedArray[(i + 44)..(i + 48)]),
+                    state: (MibState)BitConverter.ToUInt32(managedArray, i + 48),
+                    processId: BitConverter.ToInt32(managedArray, i + 52),
+                    createTimestamp: BitConverter.ToInt64(managedArray, i + 56),
+                    moduleInfo: MemoryMarshal.Cast<byte, ulong>(managedArray.AsSpan()[(i + 64)..(i + 192)]).ToArray()
+                )
+            );
+        }
+        return records;
+    }
+
+    #endregion
+
+    #endregion
+
+    #endregion
+
+    #region UDP Functions
+
+    public static List<IUdpRecord> GetUdpTable(NetworkType networkType, bool sortedOrder, UdpTableClass udpTable)
+    {
+        return networkType switch
+        {
+            NetworkType.AF_INET => GetUdp4Connections(sortedOrder, udpTable).Cast<IUdpRecord>().ToList(),
+            NetworkType.AF_INET6 => GetUdp6Connections(sortedOrder, udpTable).Cast<IUdpRecord>().ToList(),
+            NetworkType.AF_INET_UNSPEC => throw new ArgumentException("Invalid argument: networkType doesnt support AF_INET_UNSPEC"),
+            _ => throw new ArgumentException("Invalid argument: networkType"),
+        };
+    }
 
     #region UDP4 Functions
 
@@ -310,6 +455,152 @@ public class IpHelpApiWrapper
         }
         return records;
     }
+
+    #endregion
+
+    #endregion
+
+    #region UDP6 Functions
+
+    public static List<Udp6Record> GetUdp6Connections(bool sortedOrder = true, UdpTableClass udpTable = UdpTableClass.UDP_TABLE_BASIC)
+    {
+        return udpTable switch
+        {
+            UdpTableClass.UDP_TABLE_BASIC => GetBasicUdp6Connections(sortedOrder, udpTable),
+            UdpTableClass.UDP_TABLE_OWNER_MODULE => GetModuleUdp6Connections(sortedOrder, udpTable).Cast<Udp6Record>().ToList(),
+            UdpTableClass.UDP_TABLE_OWNER_PID => GetProcessUdp6Connections(sortedOrder, udpTable).Cast<Udp6Record>().ToList(),
+            _ => throw new ArgumentException("Invalid argument: udpTable"),
+        };
+    }
+
+    #region GetProcessUdp6Connections()
+
+    public static List<Udp6ProcessRecord> GetProcessUdp6Connections(bool sortedOrder = true, UdpTableClass udpTable = UdpTableClass.UDP_TABLE_OWNER_PID)
+    {
+        if (!(udpTable is UdpTableClass.UDP_TABLE_OWNER_PID)) throw new ArgumentException("GetProcessUdp6Connections() supports only processes");
+
+        int bufferSize = BufferSize;
+
+        lock (_bufferLockObject)
+        {
+            uint errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)NetworkType.AF_INET6, udpTable);
+
+            HandleErrorCode(errorCode);
+
+            return CreateUdp6ProcessRecordListFromIntPtr((IntPtr)((long)_buffer + 4), GetCurrentEntriesNum());
+        }
+    }
+
+    private static List<Udp6ProcessRecord> CreateUdp6ProcessRecordListFromIntPtr(IntPtr pointer, int num)
+    {
+        int singleSize = 28;
+
+        List<Udp6ProcessRecord> records = new(num);
+
+        byte[] managedArray = new byte[singleSize * num];
+        Marshal.Copy(pointer, managedArray, 0, singleSize * num);
+        for (int i = 0; i < num * singleSize; i += singleSize)
+        {
+            records.Add(new
+                (
+                    localAddress: managedArray[(i + 0)..(i + 16)],
+                    localScopeId: BitConverter.ToUInt32(managedArray, i + 16),
+                    localPort: GetPortFromBytes(managedArray[(i + 20)..(i + 24)]),
+                    processId: BitConverter.ToInt32(managedArray, i + 24)
+                )
+            );
+        }
+        return records;
+    }
+
+    #endregion
+
+    #region GetModuleUdp6Connections()
+
+    public static List<Udp6ModuleRecord> GetModuleUdp6Connections(bool sortedOrder = true, UdpTableClass udpTable = UdpTableClass.UDP_TABLE_OWNER_MODULE)
+    {
+        if (!(udpTable is UdpTableClass.UDP_TABLE_OWNER_MODULE)) throw new ArgumentException("GetModuleUdp6Connections() supports only modules");
+
+        int bufferSize = BufferSize;
+
+        lock (_bufferLockObject)
+        {
+            uint errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)NetworkType.AF_INET6, udpTable);
+
+            HandleErrorCode(errorCode);
+
+            return CreateUdp6ModuleRecordListFromIntPtr((IntPtr)((long)_buffer + 8), GetCurrentEntriesNum(), bufferSize - 4);
+        }
+    }
+
+    private static List<Udp6ModuleRecord> CreateUdp6ModuleRecordListFromIntPtr(IntPtr pointer, int num, int allocatedSize)
+    {
+        int singleSize = 176;
+
+        List<Udp6ModuleRecord> records = new(num);
+
+        byte[] managedArray = new byte[allocatedSize];
+        Marshal.Copy(pointer, managedArray, 0, singleSize * num);
+        for (int i = 0; i < num * singleSize; i += singleSize)
+        {
+            records.Add(new
+                (
+                    localAddress: managedArray[(i + 0)..(i + 16)],
+                    localScopeId: BitConverter.ToUInt32(managedArray, i + 16),
+                    localPort: GetPortFromBytes(managedArray[(i + 20)..(i + 24)]),
+                    processId: BitConverter.ToInt32(managedArray, i + 24),
+                    createTimestamp: BitConverter.ToInt64(managedArray, i + 32),
+                    specificPortBind: BitConverter.ToInt32(managedArray, i + 40),
+                    flags: BitConverter.ToInt32(managedArray, i + 44),
+                    moduleInfo: MemoryMarshal.Cast<byte, ulong>(managedArray.AsSpan()[(i + 48)..(i + 176)]).ToArray()
+                )
+            );
+        }
+        return records;
+    }
+
+    #endregion
+
+    #region GetBasicUdp6Connections()
+
+    public static List<Udp6Record> GetBasicUdp6Connections(bool sortedOrder = true, UdpTableClass udpTable = UdpTableClass.UDP_TABLE_BASIC)
+    {
+        if (!(udpTable is UdpTableClass.UDP_TABLE_BASIC)) throw new ArgumentException("GetBasicUdp6Connections() supports only basic");
+
+        int bufferSize = BufferSize;
+
+        lock (_bufferLockObject)
+        {
+            uint errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)NetworkType.AF_INET6, udpTable);
+
+            HandleErrorCode(errorCode);
+
+            return CreateUdp6BasicRecordListFromIntPtr((IntPtr)((long)_buffer + 4), GetCurrentEntriesNum());
+        }
+    }
+
+    private static List<Udp6Record> CreateUdp6BasicRecordListFromIntPtr(IntPtr pointer, int num)
+    {
+        int singleSize = 24;
+
+        List<Udp6Record> records = new(num);
+
+        byte[] managedArray = new byte[num * singleSize];
+        Marshal.Copy(pointer, managedArray, 0, singleSize * num);
+        for (int i = 0; i < num * singleSize; i += singleSize)
+        {
+            records.Add(new
+                (
+                    localAddress: managedArray[(i + 0)..(i + 16)],
+                    localScopeId: BitConverter.ToUInt32(managedArray, i + 16),
+                    localPort: GetPortFromBytes(managedArray[(i + 20)..(i + 24)])
+                )
+            );
+        }
+        return records;
+    }
+
+    #endregion
 
     #endregion
 
@@ -485,6 +776,100 @@ public class Tcp4ModuleRecord : Tcp4ProcessRecord
 
 #endregion
 
+#region TCP6 Classes
+
+public class Tcp6Record : ITcpRecord
+{
+
+    public readonly byte[] LocalAddress;
+
+    public readonly uint LocalScopeId;
+
+    public readonly ushort LocalPort;
+
+    private IPEndPoint? _localEndpoint = null;
+
+    public IPEndPoint LocalEndpoint
+    {
+        get
+        {
+            _localEndpoint ??= new IPEndPoint(new IPAddress(LocalAddress), LocalPort);
+            return _localEndpoint;
+        }
+    }
+
+    public readonly byte[] RemoteAddress;
+
+    public readonly uint RemoteScopeId;
+
+    public readonly ushort RemotePort;
+
+    private IPEndPoint? _remoteEndpoint = null;
+
+    public IPEndPoint RemoteEndpoint
+    {
+        get
+        {
+            _remoteEndpoint ??= new IPEndPoint(new IPAddress(RemoteAddress), RemotePort);
+            return _remoteEndpoint;
+        }
+    }
+
+    public readonly MibState State;
+
+    public Tcp6Record(byte[] localAddress, uint localScopeId, ushort localPort, byte[] remoteAddress, uint remoteScopeId, ushort remotePort, MibState state)
+    {
+        LocalAddress = localAddress;
+        LocalScopeId = localScopeId;
+        LocalPort = localPort;
+        RemoteAddress = remoteAddress;
+        RemoteScopeId = remoteScopeId;
+        RemotePort = remotePort;
+        State = state;
+    }
+}
+
+public class Tcp6ProcessRecord : Tcp6Record
+{
+
+    public readonly int ProcessId;
+
+    public Tcp6ProcessRecord(byte[] localAddress, uint localScopeId, ushort localPort, byte[] remoteAddress, uint remoteScopeId, ushort remotePort, MibState state, int processId)
+        : base(localAddress, localScopeId, localPort, remoteAddress, remoteScopeId, remotePort, state)
+    {
+        ProcessId = processId;
+    }
+
+}
+
+public class Tcp6ModuleRecord : Tcp6ProcessRecord
+{
+
+    public readonly long CreateTimestamp;
+
+    private DateTime? _createDateTime = null;
+
+    public DateTime CreateDateTime
+    {
+        get
+        {
+            _createDateTime ??= DateTime.FromFileTime(CreateTimestamp);
+            return (DateTime)_createDateTime;
+        }
+    }
+
+    public readonly ulong[] ModuleInfo;
+
+    public Tcp6ModuleRecord(byte[] localAddress, uint localScopeId, ushort localPort, byte[] remoteAddress, uint remoteScopeId, ushort remotePort, MibState state, int processId, long createTimestamp, ulong[] moduleInfo)
+        : base(localAddress, localScopeId, localPort, remoteAddress, remoteScopeId, remotePort, state, processId)
+    {
+        CreateTimestamp = createTimestamp;
+        ModuleInfo = moduleInfo;
+    }
+}
+
+#endregion
+
 #endregion
 
 #region UDP Classes
@@ -526,14 +911,12 @@ public class Udp4Record : IUdpRecord
 public class Udp4ProcessRecord : Udp4Record
 {
 
-    private readonly int _processId;
-
-    public int ProcessId { get { return _processId; } }
+    public readonly int ProcessId;
 
     public Udp4ProcessRecord(uint localAddress, ushort localPort, int pId)
         : base(localAddress, localPort)
     {
-        _processId = pId;
+        ProcessId = pId;
     }
 }
 
@@ -561,6 +944,83 @@ public class Udp4ModuleRecord : Udp4ProcessRecord
 
     public Udp4ModuleRecord(uint localAddress, ushort localPort, int pId, long createTimestamp, int specificPortBind, int flags, ulong[] moduleInfo)
         : base(localAddress, localPort, pId)
+    {
+        CreateTimestamp = createTimestamp;
+        SpecificPortBind = specificPortBind;
+        Flags = flags;
+        ModuleInfo = moduleInfo;
+    }
+}
+
+#endregion
+
+#region UDP6 Classes
+
+public class Udp6Record : IUdpRecord
+{
+
+    public readonly byte[] LocalAddress;
+
+    public readonly uint LocalScopeId;
+
+    public readonly ushort LocalPort;
+
+    private IPEndPoint? _localEndpoint = null;
+
+    public IPEndPoint LocalEndpoint
+    {
+        get
+        {
+            _localEndpoint ??= new IPEndPoint(new IPAddress(LocalAddress), LocalPort);
+            return _localEndpoint;
+        }
+    }
+
+    public Udp6Record(byte[] localAddress, uint localScopeId, ushort localPort)
+    {
+        LocalAddress = localAddress;
+        LocalScopeId = localScopeId;
+        LocalPort = localPort;
+    }
+}
+
+public class Udp6ProcessRecord : Udp6Record
+{
+
+    public readonly int ProcessId;
+
+    public Udp6ProcessRecord(byte[] localAddress, uint localScopeId, ushort localPort, int processId)
+        : base(localAddress, localScopeId, localPort)
+
+    {
+        ProcessId = processId;
+    }
+}
+
+public class Udp6ModuleRecord : Udp6ProcessRecord
+{
+
+    public readonly long CreateTimestamp;
+
+    private DateTime? _createDateTime = null;
+
+    public DateTime CreateDateTime
+    {
+        get
+        {
+            _createDateTime ??= DateTime.FromFileTime(CreateTimestamp);
+            return (DateTime)_createDateTime;
+        }
+    }
+
+    public readonly int SpecificPortBind;
+
+    public readonly int Flags;
+
+    public readonly ulong[] ModuleInfo;
+
+    public Udp6ModuleRecord(byte[] localAddress, uint localScopeId, ushort localPort, int processId, long createTimestamp, int specificPortBind, int flags, ulong[] moduleInfo)
+        : base(localAddress, localScopeId, localPort, processId)
     {
         CreateTimestamp = createTimestamp;
         SpecificPortBind = specificPortBind;
