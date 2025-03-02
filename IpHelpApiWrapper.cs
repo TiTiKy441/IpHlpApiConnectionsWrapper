@@ -2,12 +2,12 @@ using System.Net;
 using System.Runtime.InteropServices;
 
 /**
-     * Fast iphlpapi.dll wrapper for getting all tcp and udp connections
-     * 
-     * Only one call at a time, cant call from other threads if the wrapper is busy
-     * 
-     * By default the size of the Buffer to store the results of external calls is 1 mb
-     **/
+ * Fast iphlpapi.dll wrapper for getting all tcp and udp connections
+ * 
+ * Only one call at a time, cant call from other threads if the wrapper is busy
+ * 
+ * By default the size of the Buffer to store the results of external calls is 1 mb
+ **/
 public class IpHelpApiWrapper
 {
 
@@ -34,12 +34,12 @@ public class IpHelpApiWrapper
 
     #region TCP Functions
 
-    public static List<ITcpRecord> GetTcpTable(NetworkType networkType, bool sortedOrder, TcpTableClass tcpTable)
+    public static List<ITcpRecord> GetTcpTable(NetworkType networkType, TcpTableClass tcpTable, bool sortedOrder = false)
     {
         return networkType switch
         {
-            NetworkType.AF_INET => GetTcp4Connections(sortedOrder, tcpTable).Cast<ITcpRecord>().ToList(),
-            NetworkType.AF_INET6 => GetTcp6Connections(sortedOrder, tcpTable).Cast<ITcpRecord>().ToList(),
+            NetworkType.AF_INET => GetTcp4Connections(tcpTable, sortedOrder).Cast<ITcpRecord>().ToList(),
+            NetworkType.AF_INET6 => GetTcp6Connections(tcpTable, sortedOrder).Cast<ITcpRecord>().ToList(),
             NetworkType.AF_INET_UNSPEC => throw new ArgumentException("Invalid argument: networkType doesnt support AF_INET_UNSPEC"),
             _ => throw new ArgumentException("Invalid argument: networkType"),
         };
@@ -47,20 +47,20 @@ public class IpHelpApiWrapper
 
     #region TCP4 Functions
 
-    public static List<Tcp4Record> GetTcp4Connections(bool sortedOrder = true, TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_BASIC_ALL)
+    public static List<Tcp4Record> GetTcp4Connections(TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_BASIC_ALL, bool sortedOrder = false)
     {
         return tcpTable switch
         {
-            TcpTableClass.TCP_TABLE_BASIC_ALL or TcpTableClass.TCP_TABLE_BASIC_LISTENER or TcpTableClass.TCP_TABLE_BASIC_CONNECTIONS => GetBasicTcp4Connections(sortedOrder, tcpTable),
-            TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL or TcpTableClass.TCP_TABLE_OWNER_MODULE_LISTENER or TcpTableClass.TCP_TABLE_OWNER_MODULE_CONNECTIONS => GetModuleTcp4Connections(sortedOrder, tcpTable).Cast<Tcp4Record>().ToList(),
-            TcpTableClass.TCP_TABLE_OWNER_PID_ALL or TcpTableClass.TCP_TABLE_OWNER_PID_LISTENER or TcpTableClass.TCP_TABLE_OWNER_PID_CONNECTIONS => GetProcessTcp4Connections(sortedOrder, tcpTable).Cast<Tcp4Record>().ToList(),
+            TcpTableClass.TCP_TABLE_BASIC_ALL or TcpTableClass.TCP_TABLE_BASIC_LISTENER or TcpTableClass.TCP_TABLE_BASIC_CONNECTIONS => GetBasicTcp4Connections(tcpTable, sortedOrder),
+            TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL or TcpTableClass.TCP_TABLE_OWNER_MODULE_LISTENER or TcpTableClass.TCP_TABLE_OWNER_MODULE_CONNECTIONS => GetModuleTcp4Connections(tcpTable, sortedOrder).Cast<Tcp4Record>().ToList(),
+            TcpTableClass.TCP_TABLE_OWNER_PID_ALL or TcpTableClass.TCP_TABLE_OWNER_PID_LISTENER or TcpTableClass.TCP_TABLE_OWNER_PID_CONNECTIONS => GetProcessTcp4Connections(tcpTable, sortedOrder).Cast<Tcp4Record>().ToList(),
             _ => throw new ArgumentException("Invalid argument: tcpTable"),
         };
     }
 
     #region GetProcessTcp4Connections()
 
-    public static List<Tcp4ProcessRecord> GetProcessTcp4Connections(bool sortedOrder = true, TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_OWNER_PID_ALL)
+    public static List<Tcp4ProcessRecord> GetProcessTcp4Connections(TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_OWNER_PID_ALL, bool sortedOrder = false)
     {
         if (!(tcpTable is TcpTableClass.TCP_TABLE_OWNER_PID_ALL or TcpTableClass.TCP_TABLE_OWNER_PID_CONNECTIONS or TcpTableClass.TCP_TABLE_OWNER_PID_LISTENER)) throw new ArgumentException("GetProcessTcp4Connections() supports only processes");
 
@@ -93,7 +93,7 @@ public class IpHelpApiWrapper
                     localPort: GetPortFromBytes(managedArray[(i + 8)..(i + 12)]),
                     remoteAddress: BitConverter.ToUInt32(managedArray, i + 12),
                     remotePort: GetPortFromBytes(managedArray[(i + 16)..(i + 20)]),
-                    pId: BitConverter.ToInt32(managedArray, i + 20)
+                    processId: BitConverter.ToInt32(managedArray, i + 20)
                 )
             );
         }
@@ -104,7 +104,7 @@ public class IpHelpApiWrapper
 
     #region GetModuleTcp4Connections()
 
-    public static List<Tcp4ModuleRecord> GetModuleTcp4Connections(bool sortedOrder = true, TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL)
+    public static List<Tcp4ModuleRecord> GetModuleTcp4Connections(TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL, bool sortedOrder = false)
     {
         if (!(tcpTable is TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL or TcpTableClass.TCP_TABLE_OWNER_MODULE_CONNECTIONS or TcpTableClass.TCP_TABLE_OWNER_MODULE_LISTENER)) throw new ArgumentException("GetModuleTcp4Connections() supports only modules");
 
@@ -138,7 +138,7 @@ public class IpHelpApiWrapper
                     localPort: GetPortFromBytes(managedArray[(i + 8)..(i + 12)]),
                     remoteAddress: BitConverter.ToUInt32(managedArray, i + 12),
                     remotePort: GetPortFromBytes(managedArray[(i + 16)..(i + 20)]),
-                    pId: BitConverter.ToInt32(managedArray, i + 20),
+                    processId: BitConverter.ToInt32(managedArray, i + 20),
                     createTimestamp: BitConverter.ToInt64(managedArray, i + 24),
                     moduleInfo: MemoryMarshal.Cast<byte, ulong>(managedArray.AsSpan()[(i + 32)..(i + 160)]).ToArray()
                 )
@@ -152,7 +152,7 @@ public class IpHelpApiWrapper
 
     #region GetBasicTcp4Connections()
 
-    public static List<Tcp4Record> GetBasicTcp4Connections(bool sortedOrder = true, TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_BASIC_ALL)
+    public static List<Tcp4Record> GetBasicTcp4Connections(TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_BASIC_ALL, bool sortedOrder = false)
     {
         if (!(tcpTable is TcpTableClass.TCP_TABLE_BASIC_ALL or TcpTableClass.TCP_TABLE_BASIC_CONNECTIONS or TcpTableClass.TCP_TABLE_BASIC_LISTENER)) throw new ArgumentException("GetBasicTcp4Connections() supports only basic");
 
@@ -197,20 +197,20 @@ public class IpHelpApiWrapper
 
     #region TCP6 Functions
 
-    public static List<Tcp6Record> GetTcp6Connections(bool sortedOrder = true, TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_OWNER_PID_ALL)
+    public static List<Tcp6Record> GetTcp6Connections(TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_OWNER_PID_ALL, bool sortedOrder = false)
     {
         return tcpTable switch
         {
             TcpTableClass.TCP_TABLE_BASIC_ALL or TcpTableClass.TCP_TABLE_BASIC_LISTENER or TcpTableClass.TCP_TABLE_BASIC_CONNECTIONS => throw new InvalidOperationException("GetTcp6Connections() doesnt support TcpTableClass.TCP_TABLE_BASIC_*"),
-            TcpTableClass.TCP_TABLE_OWNER_PID_ALL or TcpTableClass.TCP_TABLE_OWNER_PID_LISTENER or TcpTableClass.TCP_TABLE_OWNER_PID_CONNECTIONS => GetProcessTcp6Connections(sortedOrder, tcpTable).Cast<Tcp6Record>().ToList(),
-            TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL or TcpTableClass.TCP_TABLE_OWNER_MODULE_LISTENER or TcpTableClass.TCP_TABLE_OWNER_MODULE_CONNECTIONS => GetModuleTcp6Connections(sortedOrder, tcpTable).Cast<Tcp6Record>().ToList(),
+            TcpTableClass.TCP_TABLE_OWNER_PID_ALL or TcpTableClass.TCP_TABLE_OWNER_PID_LISTENER or TcpTableClass.TCP_TABLE_OWNER_PID_CONNECTIONS => GetProcessTcp6Connections(tcpTable, sortedOrder).Cast<Tcp6Record>().ToList(),
+            TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL or TcpTableClass.TCP_TABLE_OWNER_MODULE_LISTENER or TcpTableClass.TCP_TABLE_OWNER_MODULE_CONNECTIONS => GetModuleTcp6Connections(tcpTable, sortedOrder).Cast<Tcp6Record>().ToList(),
             _ => throw new ArgumentException("Invalid argument: tcpTable"),
         };
     }
 
     #region GetProcessTcp6Connections()
 
-    public static List<Tcp6ProcessRecord> GetProcessTcp6Connections(bool sortedOrder = true, TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_OWNER_PID_ALL)
+    public static List<Tcp6ProcessRecord> GetProcessTcp6Connections(TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_OWNER_PID_ALL, bool sortedOrder = false)
     {
         if (!(tcpTable is TcpTableClass.TCP_TABLE_OWNER_PID_ALL or TcpTableClass.TCP_TABLE_OWNER_PID_CONNECTIONS or TcpTableClass.TCP_TABLE_OWNER_PID_LISTENER)) throw new ArgumentException("GetProcessTcp6Connections() supports only processes");
 
@@ -256,7 +256,7 @@ public class IpHelpApiWrapper
 
     #region GetModuleTcp6Connections()
 
-    public static List<Tcp6ModuleRecord> GetModuleTcp6Connections(bool sortedOrder = true, TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL)
+    public static List<Tcp6ModuleRecord> GetModuleTcp6Connections(TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL, bool sortedOrder = false)
     {
         if (!(tcpTable is TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL or TcpTableClass.TCP_TABLE_OWNER_MODULE_CONNECTIONS or TcpTableClass.TCP_TABLE_OWNER_MODULE_LISTENER)) throw new ArgumentException("GetModuleTcp6Connections() supports only modules");
 
@@ -308,12 +308,12 @@ public class IpHelpApiWrapper
 
     #region UDP Functions
 
-    public static List<IUdpRecord> GetUdpTable(NetworkType networkType, bool sortedOrder, UdpTableClass udpTable)
+    public static List<IUdpRecord> GetUdpTable(NetworkType networkType, UdpTableClass udpTable, bool sortedOrder = false)
     {
         return networkType switch
         {
-            NetworkType.AF_INET => GetUdp4Connections(sortedOrder, udpTable).Cast<IUdpRecord>().ToList(),
-            NetworkType.AF_INET6 => GetUdp6Connections(sortedOrder, udpTable).Cast<IUdpRecord>().ToList(),
+            NetworkType.AF_INET => GetUdp4Connections(udpTable, sortedOrder).Cast<IUdpRecord>().ToList(),
+            NetworkType.AF_INET6 => GetUdp6Connections(udpTable, sortedOrder).Cast<IUdpRecord>().ToList(),
             NetworkType.AF_INET_UNSPEC => throw new ArgumentException("Invalid argument: networkType doesnt support AF_INET_UNSPEC"),
             _ => throw new ArgumentException("Invalid argument: networkType"),
         };
@@ -321,20 +321,20 @@ public class IpHelpApiWrapper
 
     #region UDP4 Functions
 
-    public static List<Udp4Record> GetUdp4Connections(bool sortedOrder = true, UdpTableClass udpTable = UdpTableClass.UDP_TABLE_BASIC)
+    public static List<Udp4Record> GetUdp4Connections(UdpTableClass udpTable = UdpTableClass.UDP_TABLE_BASIC, bool sortedOrder = false)
     {
         return udpTable switch
         {
-            UdpTableClass.UDP_TABLE_BASIC => GetBasicUdp4Connections(sortedOrder, udpTable),
-            UdpTableClass.UDP_TABLE_OWNER_MODULE => GetModuleUdp4Connections(sortedOrder, udpTable).Cast<Udp4Record>().ToList(),
-            UdpTableClass.UDP_TABLE_OWNER_PID => GetProcessUdp4Connections(sortedOrder, udpTable).Cast<Udp4Record>().ToList(),
+            UdpTableClass.UDP_TABLE_BASIC => GetBasicUdp4Connections(udpTable, sortedOrder),
+            UdpTableClass.UDP_TABLE_OWNER_MODULE => GetModuleUdp4Connections(udpTable, sortedOrder).Cast<Udp4Record>().ToList(),
+            UdpTableClass.UDP_TABLE_OWNER_PID => GetProcessUdp4Connections(udpTable, sortedOrder).Cast<Udp4Record>().ToList(),
             _ => throw new ArgumentException("Invalid argument: udpTable"),
         };
     }
 
     #region GetProcessUdp4Connections()
 
-    public static List<Udp4ProcessRecord> GetProcessUdp4Connections(bool sortedOrder = true, UdpTableClass udpTable = UdpTableClass.UDP_TABLE_OWNER_PID)
+    public static List<Udp4ProcessRecord> GetProcessUdp4Connections(UdpTableClass udpTable = UdpTableClass.UDP_TABLE_OWNER_PID, bool sortedOrder = false)
     {
         if (!(udpTable is UdpTableClass.UDP_TABLE_OWNER_PID)) throw new ArgumentException("GetProcessUdp4Connections() supports only processes");
 
@@ -364,7 +364,7 @@ public class IpHelpApiWrapper
                 (
                     localAddress: BitConverter.ToUInt32(managedArray, i + 0),
                     localPort: GetPortFromBytes(managedArray[(i + 4)..(i + 8)]),
-                    pId: BitConverter.ToInt32(managedArray, i + 8)
+                    processId: BitConverter.ToInt32(managedArray, i + 8)
                 )
             );
         }
@@ -375,7 +375,7 @@ public class IpHelpApiWrapper
 
     #region GetModuleUdp4Connections()
 
-    public static List<Udp4ModuleRecord> GetModuleUdp4Connections(bool sortedOrder = true, UdpTableClass udpTable = UdpTableClass.UDP_TABLE_OWNER_MODULE)
+    public static List<Udp4ModuleRecord> GetModuleUdp4Connections(UdpTableClass udpTable = UdpTableClass.UDP_TABLE_OWNER_MODULE, bool sortedOrder = false)
     {
         if (!(udpTable is UdpTableClass.UDP_TABLE_OWNER_MODULE)) throw new ArgumentException("GetModuleUdp4Connections() supports only modules");
 
@@ -405,7 +405,7 @@ public class IpHelpApiWrapper
                 (
                     localAddress: BitConverter.ToUInt32(managedArray, i + 0),
                     localPort: GetPortFromBytes(managedArray[(i + 4)..(i + 8)]),
-                    pId: BitConverter.ToInt32(managedArray, i + 8),
+                    processId: BitConverter.ToInt32(managedArray, i + 8),
                     createTimestamp: BitConverter.ToInt64(managedArray, i + 16),
                     specificPortBind: BitConverter.ToInt32(managedArray, i + 24),
                     flags: BitConverter.ToInt32(managedArray, i + 28),
@@ -420,7 +420,7 @@ public class IpHelpApiWrapper
 
     #region GetBasicUdp4Connections()
 
-    public static List<Udp4Record> GetBasicUdp4Connections(bool sortedOrder = true, UdpTableClass udpTable = UdpTableClass.UDP_TABLE_BASIC)
+    public static List<Udp4Record> GetBasicUdp4Connections(UdpTableClass udpTable = UdpTableClass.UDP_TABLE_BASIC, bool sortedOrder = false)
     {
         if (!(udpTable is UdpTableClass.UDP_TABLE_BASIC)) throw new ArgumentException("GetBasicUdp4Connections() supports only basic");
 
@@ -462,20 +462,20 @@ public class IpHelpApiWrapper
 
     #region UDP6 Functions
 
-    public static List<Udp6Record> GetUdp6Connections(bool sortedOrder = true, UdpTableClass udpTable = UdpTableClass.UDP_TABLE_BASIC)
+    public static List<Udp6Record> GetUdp6Connections(UdpTableClass udpTable = UdpTableClass.UDP_TABLE_BASIC, bool sortedOrder = false)
     {
         return udpTable switch
         {
-            UdpTableClass.UDP_TABLE_BASIC => GetBasicUdp6Connections(sortedOrder, udpTable),
-            UdpTableClass.UDP_TABLE_OWNER_MODULE => GetModuleUdp6Connections(sortedOrder, udpTable).Cast<Udp6Record>().ToList(),
-            UdpTableClass.UDP_TABLE_OWNER_PID => GetProcessUdp6Connections(sortedOrder, udpTable).Cast<Udp6Record>().ToList(),
+            UdpTableClass.UDP_TABLE_BASIC => GetBasicUdp6Connections(udpTable, sortedOrder),
+            UdpTableClass.UDP_TABLE_OWNER_MODULE => GetModuleUdp6Connections(udpTable, sortedOrder).Cast<Udp6Record>().ToList(),
+            UdpTableClass.UDP_TABLE_OWNER_PID => GetProcessUdp6Connections(udpTable, sortedOrder).Cast<Udp6Record>().ToList(),
             _ => throw new ArgumentException("Invalid argument: udpTable"),
         };
     }
 
     #region GetProcessUdp6Connections()
 
-    public static List<Udp6ProcessRecord> GetProcessUdp6Connections(bool sortedOrder = true, UdpTableClass udpTable = UdpTableClass.UDP_TABLE_OWNER_PID)
+    public static List<Udp6ProcessRecord> GetProcessUdp6Connections(UdpTableClass udpTable = UdpTableClass.UDP_TABLE_OWNER_PID, bool sortedOrder = false)
     {
         if (!(udpTable is UdpTableClass.UDP_TABLE_OWNER_PID)) throw new ArgumentException("GetProcessUdp6Connections() supports only processes");
 
@@ -517,7 +517,7 @@ public class IpHelpApiWrapper
 
     #region GetModuleUdp6Connections()
 
-    public static List<Udp6ModuleRecord> GetModuleUdp6Connections(bool sortedOrder = true, UdpTableClass udpTable = UdpTableClass.UDP_TABLE_OWNER_MODULE)
+    public static List<Udp6ModuleRecord> GetModuleUdp6Connections(UdpTableClass udpTable = UdpTableClass.UDP_TABLE_OWNER_MODULE, bool sortedOrder = false)
     {
         if (!(udpTable is UdpTableClass.UDP_TABLE_OWNER_MODULE)) throw new ArgumentException("GetModuleUdp6Connections() supports only modules");
 
@@ -563,7 +563,7 @@ public class IpHelpApiWrapper
 
     #region GetBasicUdp6Connections()
 
-    public static List<Udp6Record> GetBasicUdp6Connections(bool sortedOrder = true, UdpTableClass udpTable = UdpTableClass.UDP_TABLE_BASIC)
+    public static List<Udp6Record> GetBasicUdp6Connections(UdpTableClass udpTable = UdpTableClass.UDP_TABLE_BASIC, bool sortedOrder = false)
     {
         if (!(udpTable is UdpTableClass.UDP_TABLE_BASIC)) throw new ArgumentException("GetBasicUdp6Connections() supports only basic");
 
@@ -741,10 +741,10 @@ public class Tcp4ProcessRecord : Tcp4Record
 
     public readonly int ProcessId;
 
-    public Tcp4ProcessRecord(MibState state, uint localAddress, ushort localPort, uint remoteAddress, ushort remotePort, int pId)
+    public Tcp4ProcessRecord(MibState state, uint localAddress, ushort localPort, uint remoteAddress, ushort remotePort, int processId)
         : base(state, localAddress, localPort, remoteAddress, remotePort)
     {
-        ProcessId = pId;
+        ProcessId = processId;
     }
 }
 
@@ -766,8 +766,8 @@ public class Tcp4ModuleRecord : Tcp4ProcessRecord
 
     public readonly ulong[] ModuleInfo;
 
-    public Tcp4ModuleRecord(MibState state, uint localAddress, ushort localPort, uint remoteAddress, ushort remotePort, int pId, long createTimestamp, ulong[] moduleInfo)
-        : base(state, localAddress, localPort, remoteAddress, remotePort, pId)
+    public Tcp4ModuleRecord(MibState state, uint localAddress, ushort localPort, uint remoteAddress, ushort remotePort, int processId, long createTimestamp, ulong[] moduleInfo)
+        : base(state, localAddress, localPort, remoteAddress, remotePort, processId)
     {
         CreateTimestamp = createTimestamp;
         ModuleInfo = moduleInfo;
@@ -913,10 +913,10 @@ public class Udp4ProcessRecord : Udp4Record
 
     public readonly int ProcessId;
 
-    public Udp4ProcessRecord(uint localAddress, ushort localPort, int pId)
+    public Udp4ProcessRecord(uint localAddress, ushort localPort, int processId)
         : base(localAddress, localPort)
     {
-        ProcessId = pId;
+        ProcessId = processId;
     }
 }
 
@@ -942,8 +942,8 @@ public class Udp4ModuleRecord : Udp4ProcessRecord
 
     public readonly ulong[] ModuleInfo;
 
-    public Udp4ModuleRecord(uint localAddress, ushort localPort, int pId, long createTimestamp, int specificPortBind, int flags, ulong[] moduleInfo)
-        : base(localAddress, localPort, pId)
+    public Udp4ModuleRecord(uint localAddress, ushort localPort, int processId, long createTimestamp, int specificPortBind, int flags, ulong[] moduleInfo)
+        : base(localAddress, localPort, processId)
     {
         CreateTimestamp = createTimestamp;
         SpecificPortBind = specificPortBind;
