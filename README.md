@@ -1,7 +1,7 @@
 # IpHlpApiConnectionsWrapper
 This is a C# wrapper for iphlpapi.dll
 
-It was made for the purpose of retrieving all TCP/UDP connections of any type (process/module/basic, ipv6/ipv4)
+It was made for the purpose of retrieving all TCP/UDP connections of any type (process/module/basic, ipv6/ipv4) as fast as possible
 
 Available functions and methods:
 1. `SetBufferSize(int newSize)`
