@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 
 /**
@@ -34,13 +35,12 @@ public class IpHelpApiWrapper
 
     #region TCP Functions
 
-    public static List<ITcpRecord> GetTcpTable(NetworkType networkType, TcpTableClass tcpTable, bool sortedOrder = false)
+    public static List<ITcpRecord> GetTcpTable(AddressFamily networkType, TcpTableClass tcpTable, bool sortedOrder = false)
     {
         return networkType switch
         {
-            NetworkType.AF_INET => GetTcp4Connections(tcpTable, sortedOrder).Cast<ITcpRecord>().ToList(),
-            NetworkType.AF_INET6 => GetTcp6Connections(tcpTable, sortedOrder).Cast<ITcpRecord>().ToList(),
-            NetworkType.AF_INET_UNSPEC => throw new ArgumentException("Invalid argument: networkType doesnt support AF_INET_UNSPEC"),
+            AddressFamily.InterNetwork => GetTcp4Connections(tcpTable, sortedOrder).Cast<ITcpRecord>().ToList(),
+            AddressFamily.InterNetworkV6 => GetTcp6Connections(tcpTable, sortedOrder).Cast<ITcpRecord>().ToList(),
             _ => throw new ArgumentException("Invalid argument: networkType"),
         };
     }
@@ -68,7 +68,7 @@ public class IpHelpApiWrapper
 
         lock (_bufferLockObject)
         {
-            uint errorCode = GetExtendedTcpTable(_buffer, ref bufferSize, sortedOrder, (int)NetworkType.AF_INET, tcpTable);
+            uint errorCode = GetExtendedTcpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, tcpTable);
 
             HandleErrorCode(errorCode);
 
@@ -112,7 +112,7 @@ public class IpHelpApiWrapper
 
         lock (_bufferLockObject)
         {
-            uint errorCode = GetExtendedTcpTable(_buffer, ref bufferSize, sortedOrder, (int)NetworkType.AF_INET, tcpTable);
+            uint errorCode = GetExtendedTcpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, tcpTable);
 
             HandleErrorCode(errorCode);
 
@@ -160,7 +160,7 @@ public class IpHelpApiWrapper
 
         lock (_bufferLockObject)
         {
-            uint errorCode = GetExtendedTcpTable(_buffer, ref bufferSize, sortedOrder, (int)NetworkType.AF_INET, tcpTable);
+            uint errorCode = GetExtendedTcpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, tcpTable);
 
             HandleErrorCode(errorCode);
 
@@ -218,7 +218,7 @@ public class IpHelpApiWrapper
 
         lock (_bufferLockObject)
         {
-            uint errorCode = GetExtendedTcpTable(_buffer, ref bufferSize, sortedOrder, (int)NetworkType.AF_INET6, tcpTable);
+            uint errorCode = GetExtendedTcpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, tcpTable);
 
             HandleErrorCode(errorCode);
 
@@ -264,7 +264,7 @@ public class IpHelpApiWrapper
 
         lock (_bufferLockObject)
         {
-            uint errorCode = GetExtendedTcpTable(_buffer, ref bufferSize, sortedOrder, (int)NetworkType.AF_INET6, tcpTable);
+            uint errorCode = GetExtendedTcpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, tcpTable);
 
             HandleErrorCode(errorCode);
 
@@ -308,13 +308,12 @@ public class IpHelpApiWrapper
 
     #region UDP Functions
 
-    public static List<IUdpRecord> GetUdpTable(NetworkType networkType, UdpTableClass udpTable, bool sortedOrder = false)
+    public static List<IUdpRecord> GetUdpTable(AddressFamily networkType, UdpTableClass udpTable, bool sortedOrder = false)
     {
         return networkType switch
         {
-            NetworkType.AF_INET => GetUdp4Connections(udpTable, sortedOrder).Cast<IUdpRecord>().ToList(),
-            NetworkType.AF_INET6 => GetUdp6Connections(udpTable, sortedOrder).Cast<IUdpRecord>().ToList(),
-            NetworkType.AF_INET_UNSPEC => throw new ArgumentException("Invalid argument: networkType doesnt support AF_INET_UNSPEC"),
+            AddressFamily.InterNetwork => GetUdp4Connections(udpTable, sortedOrder).Cast<IUdpRecord>().ToList(),
+            AddressFamily.InterNetworkV6 => GetUdp6Connections(udpTable, sortedOrder).Cast<IUdpRecord>().ToList(),
             _ => throw new ArgumentException("Invalid argument: networkType"),
         };
     }
@@ -342,7 +341,7 @@ public class IpHelpApiWrapper
 
         lock (_bufferLockObject)
         {
-            uint errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)NetworkType.AF_INET, udpTable);
+            uint errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, udpTable);
 
             HandleErrorCode(errorCode);
 
@@ -383,7 +382,7 @@ public class IpHelpApiWrapper
 
         lock (_bufferLockObject)
         {
-            uint errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)NetworkType.AF_INET, udpTable);
+            uint errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, udpTable);
 
             HandleErrorCode(errorCode);
 
@@ -428,7 +427,7 @@ public class IpHelpApiWrapper
 
         lock (_bufferLockObject)
         {
-            uint errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)NetworkType.AF_INET, udpTable);
+            uint errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, udpTable);
 
             HandleErrorCode(errorCode);
 
@@ -483,7 +482,7 @@ public class IpHelpApiWrapper
 
         lock (_bufferLockObject)
         {
-            uint errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)NetworkType.AF_INET6, udpTable);
+            uint errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, udpTable);
 
             HandleErrorCode(errorCode);
 
@@ -525,7 +524,7 @@ public class IpHelpApiWrapper
 
         lock (_bufferLockObject)
         {
-            uint errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)NetworkType.AF_INET6, udpTable);
+            uint errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, udpTable);
 
             HandleErrorCode(errorCode);
 
@@ -571,7 +570,7 @@ public class IpHelpApiWrapper
 
         lock (_bufferLockObject)
         {
-            uint errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)NetworkType.AF_INET6, udpTable);
+            uint errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, udpTable);
 
             HandleErrorCode(errorCode);
 
@@ -668,13 +667,6 @@ public enum ErrorReturnCodes
     NO_ERROR = 0,
     ERROR_INSUFFICIENT_BUFFER = 122,
     ERROR_INVALID_PARAMETER = 87,
-}
-
-public enum NetworkType
-{
-    AF_INET_UNSPEC = 0,
-    AF_INET = 2, // IPV4
-    AF_INET6 = 23, // IPV6
 }
 
 #region TCP Classes
@@ -1028,6 +1020,10 @@ public class Udp6ModuleRecord : Udp6ProcessRecord
         ModuleInfo = moduleInfo;
     }
 }
+
+#endregion
+
+#endregion
 
 #endregion
 
