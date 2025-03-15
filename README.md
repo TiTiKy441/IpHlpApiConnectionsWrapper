@@ -34,3 +34,8 @@ using(IpHelpApiWrapper wrapper = new IpHelpApiWrapper())
     tcp6ModuleRecordList = wrapper.GetTcpTable(AddressFamily.InterNetworkV6, TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL).Cast<Tcp6ModuleRecord>().ToList();
 }
 ```
+
+## Performance recomendations
+If you want to get some fixed type of record, you should get it directly (for example `GetProcessTcp4Connections()`, `GetModuleUdp6Connections()`) instead of `GetTcpTable` or `GetUdpTable`
+
+Using `LocalIPAddress` or `LocalEndPoint` property of any record type internally converts `LocalAddress`, `LocalPort`, `LocalScopeId` into an `IPAddress` or `IpEndPoint`. This takes some computing power. If you are developing a high performance application which is, for example, have to compare IP address to the processes IP addresses in bulk, you should consider converting the IP address into `uint` and only then compare it with the processes IP addresses. Same applies to `RemoteAddress` and `RemoteEndPoint`
