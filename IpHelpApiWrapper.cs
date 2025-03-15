@@ -3,7 +3,6 @@ using System.Net.Sockets;
 using System.Runtime.InteropServices;
 
 /**
- * 
  * Fast iphlpapi.dll wrapper for getting all tcp and udp connections
  * 
  * Only one call at a time, cant call from other threads if the wrapper is busy
