@@ -16,7 +16,7 @@ Available functions and methods:
 
 ## Example
 
-```
+```C#
 using(IpHelpApiWrapper wrapper = new IpHelpApiWrapper())
 {
     List<Tcp4ProcessRecord> tcp4ProcessRecordList = wrapper.GetProcessTcp4Connections();
