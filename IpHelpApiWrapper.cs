@@ -106,29 +106,25 @@ public sealed class IpHelpApiWrapper : IDisposable
 
             HandleErrorCode(errorCode);
 
-            return CreateTcp4ProcessRecordListFromBuffer();
+            return CreateTcp4ProcessRecordListFromBuffer(bufferSize);
         }
     }
 
-    private List<Tcp4ProcessRecord> CreateTcp4ProcessRecordListFromBuffer()
+    private List<Tcp4ProcessRecord> CreateTcp4ProcessRecordListFromBuffer(int allocatedSize)
     {
-        IntPtr pointer = (IntPtr)((long)_buffer + 4);
-        int num = GetCurrentEntriesNum();
         int singleSize = 24;
-
+        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
+        int num = (int)BitConverter.ToUInt32(_bufferArray);
         List<Tcp4ProcessRecord> records = new(num);
-
-        Marshal.Copy(pointer, _bufferArray, 0, singleSize * num);
-
-        for (int i = 0; i < num * singleSize; i += singleSize)
+        for (int i = 4; i < (allocatedSize - singleSize); i += singleSize)
         {
             records.Add(new
                 (
                     state: (MibState)BitConverter.ToUInt32(_bufferArray, i + 0),
                     localAddress: BitConverter.ToUInt32(_bufferArray, i + 4),
-                    localPort: GetPortFromBytes(_bufferArray, i + 8),
+                    localPort: (ushort)((_bufferArray[i + 8] << 8) + _bufferArray[i + 9]),
                     remoteAddress: BitConverter.ToUInt32(_bufferArray, i + 12),
-                    remotePort: GetPortFromBytes(_bufferArray, i + 16),
+                    remotePort: (ushort)((_bufferArray[i + 16] << 8) + _bufferArray[i + 17]),
                     processId: BitConverter.ToInt32(_bufferArray, i + 20)
                 )
             );
@@ -159,29 +155,25 @@ public sealed class IpHelpApiWrapper : IDisposable
 
             HandleErrorCode(errorCode);
 
-            return CreateTcp4ModuleRecordListFromBuffer();
+            return CreateTcp4ModuleRecordListFromBuffer(bufferSize);
         }
     }
 
-    private List<Tcp4ModuleRecord> CreateTcp4ModuleRecordListFromBuffer()
+    private List<Tcp4ModuleRecord> CreateTcp4ModuleRecordListFromBuffer(int allocatedSize)
     {
-        IntPtr pointer = (IntPtr)((long)_buffer + 8);
-        int num = GetCurrentEntriesNum();
         int singleSize = 160;
-
+        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
+        int num = (int)BitConverter.ToUInt32(_bufferArray);
         List<Tcp4ModuleRecord> records = new(num);
-
-        Marshal.Copy(pointer, _bufferArray, 0, singleSize * num);
-
-        for (int i = 0; i < num * singleSize; i += singleSize)
+        for (int i = 8; i < (allocatedSize - singleSize); i += singleSize)
         {
             records.Add(new
                 (
                     state: (MibState)BitConverter.ToUInt32(_bufferArray, i + 0),
                     localAddress: BitConverter.ToUInt32(_bufferArray, i + 4),
-                    localPort: GetPortFromBytes(_bufferArray, i + 8),
+                    localPort: (ushort)((_bufferArray[i + 8] << 8) + _bufferArray[i + 9]),
                     remoteAddress: BitConverter.ToUInt32(_bufferArray, i + 12),
-                    remotePort: GetPortFromBytes(_bufferArray, i + 16),
+                    remotePort: (ushort)((_bufferArray[i + 16] << 8) + _bufferArray[i + 17]),
                     processId: BitConverter.ToInt32(_bufferArray, i + 20),
                     createTimestamp: BitConverter.ToInt64(_bufferArray, i + 24),
                     moduleInfo: MemoryMarshal.Cast<byte, ulong>(_bufferArray.AsSpan(32, 128)).ToArray()
@@ -215,28 +207,25 @@ public sealed class IpHelpApiWrapper : IDisposable
 
             HandleErrorCode(errorCode);
 
-            return CreateTcp4BasicRecordListFromBuffer();
+            return CreateTcp4BasicRecordListFromBuffer(bufferSize);
         }
     }
 
-    private List<Tcp4Record> CreateTcp4BasicRecordListFromBuffer()
+    private List<Tcp4Record> CreateTcp4BasicRecordListFromBuffer(int allocatedSize)
     {
-        IntPtr pointer = (IntPtr)((long)_buffer + 4);
-        int num = GetCurrentEntriesNum();
         int singleSize = 20;
-
+        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
+        int num = (int)BitConverter.ToUInt32(_bufferArray);
         List<Tcp4Record> records = new(num);
-
-        Marshal.Copy(pointer, _bufferArray, 0, singleSize * num);
-        for (int i = 0; i < num * singleSize; i += singleSize)
+        for (int i = 4; i < (allocatedSize - singleSize); i += singleSize)
         {
             records.Add(new
                 (
                     state: (MibState)BitConverter.ToUInt32(_bufferArray, i + 0),
                     localAddress: BitConverter.ToUInt32(_bufferArray, i + 4),
-                    localPort: GetPortFromBytes(_bufferArray, i + 8),
+                    localPort: (ushort)((_bufferArray[i + 8] << 8) + _bufferArray[i + 9]),
                     remoteAddress: BitConverter.ToUInt32(_bufferArray, i + 12),
-                    remotePort: GetPortFromBytes(_bufferArray, i + 16)
+                    remotePort: (ushort)((_bufferArray[i + 16] << 8) + _bufferArray[i + 17])
                 )
             );
         }
@@ -281,29 +270,26 @@ public sealed class IpHelpApiWrapper : IDisposable
 
             HandleErrorCode(errorCode);
 
-            return CreateTcp6ProcessRecordListFromBuffer();
+            return CreateTcp6ProcessRecordListFromBuffer(bufferSize);
         }
     }
 
-    private List<Tcp6ProcessRecord> CreateTcp6ProcessRecordListFromBuffer()
+    private List<Tcp6ProcessRecord> CreateTcp6ProcessRecordListFromBuffer(int allocatedSize)
     {
-        IntPtr pointer = (IntPtr)((long)_buffer + 4);
-        int num = GetCurrentEntriesNum();
         int singleSize = 56;
-
+        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
+        int num = (int)BitConverter.ToUInt32(_bufferArray);
         List<Tcp6ProcessRecord> records = new(num);
-
-        Marshal.Copy(pointer, _bufferArray, 0, singleSize * num);
-        for (int i = 0; i < num * singleSize; i += singleSize)
+        for (int i = 4; i < (allocatedSize - singleSize); i += singleSize)
         {
             records.Add(new
                 (
                     localAddress: _bufferArray[(i + 0)..(i + 16)],
                     localScopeId: BitConverter.ToUInt32(_bufferArray, i + 16),
-                    localPort: GetPortFromBytes(_bufferArray, i + 20),
+                    localPort: (ushort)((_bufferArray[i + 20] << 8) + _bufferArray[i + 21]),
                     remoteAddress: _bufferArray[(i + 24)..(i + 40)],
                     remoteScopeId: BitConverter.ToUInt32(_bufferArray, i + 40),
-                    remotePort: GetPortFromBytes(_bufferArray, i + 44),
+                    remotePort: (ushort)((_bufferArray[i + 44] << 8) + _bufferArray[i + 45]),
                     state: (MibState)BitConverter.ToUInt32(_bufferArray, i + 48),
                     processId: BitConverter.ToInt32(_bufferArray, i + 52)
                 )
@@ -335,29 +321,26 @@ public sealed class IpHelpApiWrapper : IDisposable
 
             HandleErrorCode(errorCode);
 
-            return CreateTcp6ModuleRecordListFromBuffer();
+            return CreateTcp6ModuleRecordListFromBuffer(bufferSize);
         }
     }
 
-    private List<Tcp6ModuleRecord> CreateTcp6ModuleRecordListFromBuffer()
+    private List<Tcp6ModuleRecord> CreateTcp6ModuleRecordListFromBuffer(int allocatedSize)
     {
-        IntPtr pointer = (IntPtr)((long)_buffer + 8);
-        int num = GetCurrentEntriesNum();
         int singleSize = 192;
-
+        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
+        int num = (int)BitConverter.ToUInt32(_bufferArray);
         List<Tcp6ModuleRecord> records = new(num);
-
-        Marshal.Copy(pointer, _bufferArray, 0, num * singleSize);
-        for (int i = 0; i < num * singleSize; i += singleSize)
+        for (int i = 8; i < (allocatedSize - singleSize); i += singleSize)
         {
             records.Add(new
                 (
                     localAddress: _bufferArray[(i + 0)..(i + 16)],
                     localScopeId: BitConverter.ToUInt32(_bufferArray, i + 16),
-                    localPort: GetPortFromBytes(_bufferArray, i + 20),
+                    localPort: (ushort)((_bufferArray[i + 20] << 8) + _bufferArray[i + 21]),
                     remoteAddress: _bufferArray[(i + 24)..(i + 40)],
                     remoteScopeId: BitConverter.ToUInt32(_bufferArray, i + 40),
-                    remotePort: GetPortFromBytes(_bufferArray, i + 44),
+                    remotePort: (ushort)((_bufferArray[i + 44] << 8) + _bufferArray[i + 45]),
                     state: (MibState)BitConverter.ToUInt32(_bufferArray, i + 48),
                     processId: BitConverter.ToInt32(_bufferArray, i + 52),
                     createTimestamp: BitConverter.ToInt64(_bufferArray, i + 56),
@@ -420,25 +403,22 @@ public sealed class IpHelpApiWrapper : IDisposable
 
             HandleErrorCode(errorCode);
 
-            return CreateUdp4ProcessRecordListFromBuffer();
+            return CreateUdp4ProcessRecordListFromBuffer(bufferSize);
         }
     }
 
-    private List<Udp4ProcessRecord> CreateUdp4ProcessRecordListFromBuffer()
+    private List<Udp4ProcessRecord> CreateUdp4ProcessRecordListFromBuffer(int allocatedSize)
     {
-        IntPtr pointer = (IntPtr)((long)_buffer + 4);
-        int num = GetCurrentEntriesNum();
         int singleSize = 12;
-
+        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
+        int num = (int)BitConverter.ToUInt32(_bufferArray);
         List<Udp4ProcessRecord> records = new(num);
-
-        Marshal.Copy(pointer, _bufferArray, 0, singleSize * num);
-        for (int i = 0; i < num * singleSize; i += singleSize)
+        for (int i = 4; i < (allocatedSize - singleSize); i += singleSize)
         {
             records.Add(new
                 (
                     localAddress: BitConverter.ToUInt32(_bufferArray, i + 0),
-                    localPort: GetPortFromBytes(_bufferArray, i + 4),
+                    localPort: (ushort)((_bufferArray[i + 4] << 8) + _bufferArray[i + 5]),
                     processId: BitConverter.ToInt32(_bufferArray, i + 8)
                 )
             );
@@ -469,25 +449,22 @@ public sealed class IpHelpApiWrapper : IDisposable
 
             HandleErrorCode(errorCode);
 
-            return CreateUdp4ModuleRecordListFromBuffer();
+            return CreateUdp4ModuleRecordListFromBuffer(bufferSize);
         }
     }
 
-    private List<Udp4ModuleRecord> CreateUdp4ModuleRecordListFromBuffer()
+    private List<Udp4ModuleRecord> CreateUdp4ModuleRecordListFromBuffer(int allocatedSize)
     {
-        IntPtr pointer = (IntPtr)((long)_buffer + 8);
-        int num = GetCurrentEntriesNum();
         int singleSize = 160;
-
+        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
+        int num = (int)BitConverter.ToUInt32(_bufferArray);
         List<Udp4ModuleRecord> records = new(num);
-
-        Marshal.Copy(pointer, _bufferArray, 0, singleSize * num);
-        for (int i = 0; i < num * singleSize; i += singleSize)
+        for (int i = 8; i < (allocatedSize - singleSize); i += singleSize)
         {
             records.Add(new
                 (
                     localAddress: BitConverter.ToUInt32(_bufferArray, i + 0),
-                    localPort: GetPortFromBytes(_bufferArray, i + 4),
+                    localPort: (ushort)((_bufferArray[i + 4] << 8) + _bufferArray[i + 5]),
                     processId: BitConverter.ToInt32(_bufferArray, i + 8),
                     createTimestamp: BitConverter.ToInt64(_bufferArray, i + 16),
                     specificPortBind: _bufferArray[i + 24] == 1,
@@ -522,25 +499,22 @@ public sealed class IpHelpApiWrapper : IDisposable
 
             HandleErrorCode(errorCode);
 
-            return CreateUdp4BasicRecordListFromBuffer();
+            return CreateUdp4BasicRecordListFromBuffer(bufferSize);
         }
     }
 
-    private List<Udp4Record> CreateUdp4BasicRecordListFromBuffer()
+    private List<Udp4Record> CreateUdp4BasicRecordListFromBuffer(int allocatedSize)
     {
-        IntPtr pointer = (IntPtr)((long)_buffer + 4);
-        int num = GetCurrentEntriesNum();
         int singleSize = 8;
-
+        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
+        int num = (int)BitConverter.ToUInt32(_bufferArray);
         List<Udp4Record> records = new(num);
-
-        Marshal.Copy(pointer, _bufferArray, 0, singleSize * num);
-        for (int i = 0; i < num * singleSize; i += singleSize)
+        for (int i = 4; i < (allocatedSize - singleSize); i += singleSize)
         {
             records.Add(new
                 (
                     localAddress: BitConverter.ToUInt32(_bufferArray, i + 0),
-                    localPort: GetPortFromBytes(_bufferArray, i + 4)
+                    localPort: (ushort)((_bufferArray[i + 4] << 8) + _bufferArray[i + 5])
                 )
             );
         }
@@ -585,26 +559,23 @@ public sealed class IpHelpApiWrapper : IDisposable
 
             HandleErrorCode(errorCode);
 
-            return CreateUdp6ProcessRecordListFromBuffer();
+            return CreateUdp6ProcessRecordListFromBuffer(bufferSize);
         }
     }
 
-    private List<Udp6ProcessRecord> CreateUdp6ProcessRecordListFromBuffer()
+    private List<Udp6ProcessRecord> CreateUdp6ProcessRecordListFromBuffer(int allocatedSize)
     {
-        IntPtr pointer = (IntPtr)((long)_buffer + 4);
-        int num = GetCurrentEntriesNum();
         int singleSize = 28;
-
+        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
+        int num = (int)BitConverter.ToUInt32(_bufferArray);
         List<Udp6ProcessRecord> records = new(num);
-
-        Marshal.Copy(pointer, _bufferArray, 0, singleSize * num);
-        for (int i = 0; i < num * singleSize; i += singleSize)
+        for (int i = 4; i < (allocatedSize - singleSize); i += singleSize)
         {
             records.Add(new
                 (
                     localAddress: _bufferArray[(i + 0)..(i + 16)],
                     localScopeId: BitConverter.ToUInt32(_bufferArray, i + 16),
-                    localPort: GetPortFromBytes(_bufferArray, i + 20),
+                    localPort: (ushort)((_bufferArray[i + 20] << 8) + _bufferArray[i + 21]),
                     processId: BitConverter.ToInt32(_bufferArray, i + 24)
                 )
             );
@@ -635,26 +606,23 @@ public sealed class IpHelpApiWrapper : IDisposable
 
             HandleErrorCode(errorCode);
 
-            return CreateUdp6ModuleRecordListFromBuffer();
+            return CreateUdp6ModuleRecordListFromBuffer(bufferSize);
         }
     }
 
-    private List<Udp6ModuleRecord> CreateUdp6ModuleRecordListFromBuffer()
+    private List<Udp6ModuleRecord> CreateUdp6ModuleRecordListFromBuffer(int allocatedSize)
     {
-        IntPtr pointer = (IntPtr)((long)_buffer + 8);
-        int num = GetCurrentEntriesNum();
         int singleSize = 176;
-
+        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
+        int num = (int)BitConverter.ToUInt32(_bufferArray);
         List<Udp6ModuleRecord> records = new(num);
-
-        Marshal.Copy(pointer, _bufferArray, 0, singleSize * num);
-        for (int i = 0; i < num * singleSize; i += singleSize)
+        for (int i = 8; i < (allocatedSize - singleSize); i += singleSize)
         {
             records.Add(new
                 (
                     localAddress: _bufferArray[(i + 0)..(i + 16)],
                     localScopeId: BitConverter.ToUInt32(_bufferArray, i + 16),
-                    localPort: GetPortFromBytes(_bufferArray, i + 20),
+                    localPort: (ushort)((_bufferArray[i + 20] << 8) + _bufferArray[i + 21]),
                     processId: BitConverter.ToInt32(_bufferArray, i + 24),
                     createTimestamp: BitConverter.ToInt64(_bufferArray, i + 32),
                     specificPortBind: _bufferArray[i + 40] == 1,
@@ -689,26 +657,23 @@ public sealed class IpHelpApiWrapper : IDisposable
 
             HandleErrorCode(errorCode);
 
-            return CreateUdp6BasicRecordListFromBuffer();
+            return CreateUdp6BasicRecordListFromBuffer(bufferSize);
         }
     }
 
-    private List<Udp6Record> CreateUdp6BasicRecordListFromBuffer()
+    private List<Udp6Record> CreateUdp6BasicRecordListFromBuffer(int allocatedSize)
     {
-        IntPtr pointer = (IntPtr)((long)_buffer + 4);
-        int num = GetCurrentEntriesNum();
         int singleSize = 24;
-
+        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
+        int num = (int)BitConverter.ToUInt32(_bufferArray);
         List<Udp6Record> records = new(num);
-
-        Marshal.Copy(pointer, _bufferArray, 0, singleSize * num);
-        for (int i = 0; i < num * singleSize; i += singleSize)
+        for (int i = 4; i < (allocatedSize - singleSize); i += singleSize)
         {
             records.Add(new
                 (
                     localAddress: _bufferArray[(i + 0)..(i + 16)],
                     localScopeId: BitConverter.ToUInt32(_bufferArray, i + 16),
-                    localPort: GetPortFromBytes(_bufferArray, i + 20)
+                    localPort: (ushort)((_bufferArray[i + 20] << 8) + _bufferArray[i + 21])
                 )
             );
         }
@@ -721,11 +686,6 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #endregion
 
-    private static ushort GetPortFromBytes(byte[] bytes, int startIndex)
-    {
-        return (ushort)((bytes[startIndex] << 8) + bytes[startIndex + 1]);
-    }
-
     private static void HandleErrorCode(uint errorCode)
     {
         if (errorCode == (int)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER) throw new OutOfMemoryException("Buffer is too small");
@@ -735,15 +695,6 @@ public sealed class IpHelpApiWrapper : IDisposable
     private void ThrowIfDisposed()
     {
         if (_disposed) throw new ObjectDisposedException(GetType().FullName);
-    }
-
-    private int GetCurrentEntriesNum()
-    {
-        lock (_bufferLockObject)
-        {
-            Marshal.Copy(_buffer, _bufferArray, 0, 4);
-            return (int)BitConverter.ToUInt32(_bufferArray);
-        }
     }
 
     public void Dispose()
@@ -881,7 +832,6 @@ public class Tcp4Record : ITcpRecord
         RemotePort = remotePort;
         State = state;
     }
-
 }
 
 public class Tcp4ProcessRecord : Tcp4Record
