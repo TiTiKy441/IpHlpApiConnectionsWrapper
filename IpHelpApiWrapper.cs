@@ -764,27 +764,35 @@ public sealed class IpHelpApiWrapper : IDisposable
     }
 }
 
+public enum IpNetType
+{
+    Other = 1,
+    Invalid = 2,
+    Dynamic = 3,
+    Static = 4,
+}
+
 public enum TcpTableClass
 {
-    TCP_TABLE_BASIC_LISTENER,
-    TCP_TABLE_BASIC_CONNECTIONS,
-    TCP_TABLE_BASIC_ALL,
-    TCP_TABLE_OWNER_PID_LISTENER,
-    TCP_TABLE_OWNER_PID_CONNECTIONS,
-    TCP_TABLE_OWNER_PID_ALL,
-    TCP_TABLE_OWNER_MODULE_LISTENER,
-    TCP_TABLE_OWNER_MODULE_CONNECTIONS,
-    TCP_TABLE_OWNER_MODULE_ALL
+    BasicListeners,
+    BasicConnections,
+    BasicAll,
+    ProcessListeners,
+    ProcessConnections,
+    ProcessAll,
+    ModuleListeners,
+    ModuleConnections,
+    ModuleAll
 }
 
 public enum UdpTableClass
 {
-    UDP_TABLE_BASIC,
-    UDP_TABLE_OWNER_PID,
-    UDP_TABLE_OWNER_MODULE
+    Basic,
+    Process,
+    Module
 }
 
-public enum MibState
+public enum ConnectionState
 {
     CLOSED = 1,
     LISTENING = 2,
@@ -806,6 +814,7 @@ public enum ErrorReturnCodes
     NO_ERROR = 0,
     ERROR_INSUFFICIENT_BUFFER = 122,
     ERROR_INVALID_PARAMETER = 87,
+    ERROR_NO_DATA = 238,
 }
 
 #region TCP Classes
