@@ -1,4 +1,6 @@
+using System.ComponentModel;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 
@@ -12,11 +14,20 @@ using System.Runtime.InteropServices;
 public sealed class IpHelpApiWrapper : IDisposable
 {
 
-    [DllImport("iphlpapi.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    /**
+     * PtrToStructure is BAD!
+     **/
+
+    public const string LibraryName = "iphlpapi.dll";
+
+    [DllImport(LibraryName, CharSet = CharSet.Auto, SetLastError = true)]
     private static extern uint GetExtendedTcpTable(IntPtr pTcpTable, ref int pdwSize, bool bOrder, int ulAf, TcpTableClass tableClass, uint reserved = 0);
 
-    [DllImport("iphlpapi.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    [DllImport(LibraryName, CharSet = CharSet.Auto, SetLastError = true)]
     private static extern uint GetExtendedUdpTable(IntPtr pUdpTable, ref int pdwSize, bool bOrder, int ulAf, UdpTableClass tableClass, uint reserved = 0);
+
+    [DllImport(LibraryName, CharSet = CharSet.Auto, SetLastError = true)]
+    private static extern int GetIpNetTable(IntPtr pIpNetTable, ref int pdwSize, bool bOrder);
 
     private int _bufferSize;
 
@@ -74,23 +85,23 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #region TCP4 Functions
 
-    public IEnumerable<Tcp4Record> GetTcp4Connections(TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_BASIC_ALL, bool sortedOrder = false)
+    public IEnumerable<Tcp4Record> GetTcp4Connections(TcpTableClass tcpTable = TcpTableClass.BasicAll, bool sortedOrder = false)
     {
         return tcpTable switch
         {
-            TcpTableClass.TCP_TABLE_BASIC_ALL or TcpTableClass.TCP_TABLE_BASIC_LISTENER or TcpTableClass.TCP_TABLE_BASIC_CONNECTIONS => GetBasicTcp4Connections(tcpTable, sortedOrder),
-            TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL or TcpTableClass.TCP_TABLE_OWNER_MODULE_LISTENER or TcpTableClass.TCP_TABLE_OWNER_MODULE_CONNECTIONS => GetModuleTcp4Connections(tcpTable, sortedOrder).Cast<Tcp4Record>(),
-            TcpTableClass.TCP_TABLE_OWNER_PID_ALL or TcpTableClass.TCP_TABLE_OWNER_PID_LISTENER or TcpTableClass.TCP_TABLE_OWNER_PID_CONNECTIONS => GetProcessTcp4Connections(tcpTable, sortedOrder).Cast<Tcp4Record>(),
+            TcpTableClass.BasicAll or TcpTableClass.BasicListeners or TcpTableClass.BasicConnections => GetBasicTcp4Connections(tcpTable, sortedOrder),
+            TcpTableClass.ModuleAll or TcpTableClass.ModuleListeners or TcpTableClass.ModuleConnections => GetModuleTcp4Connections(tcpTable, sortedOrder).Cast<Tcp4Record>(),
+            TcpTableClass.ProcessAll or TcpTableClass.ProcessListeners or TcpTableClass.ProcessConnections => GetProcessTcp4Connections(tcpTable, sortedOrder).Cast<Tcp4Record>(),
             _ => throw new ArgumentException("Invalid argument: tcpTable"),
         };
     }
 
-    #region GetProcessTcp4Connections()
+    #region GetProcessTcp4Connections
 
-    public List<Tcp4ProcessRecord> GetProcessTcp4Connections(TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_OWNER_PID_ALL, bool sortedOrder = false)
+    public List<Tcp4ProcessRecord> GetProcessTcp4Connections(TcpTableClass tcpTable = TcpTableClass.ProcessAll, bool sortedOrder = false)
     {
         ThrowIfDisposed();
-        if (!(tcpTable is TcpTableClass.TCP_TABLE_OWNER_PID_ALL or TcpTableClass.TCP_TABLE_OWNER_PID_CONNECTIONS or TcpTableClass.TCP_TABLE_OWNER_PID_LISTENER)) throw new ArgumentException("GetProcessTcp4Connections() supports only processes");
+        if (!(tcpTable is TcpTableClass.ProcessAll or TcpTableClass.ProcessConnections or TcpTableClass.ProcessListeners)) throw new ArgumentException("GetProcessTcp4Connections supports only processes");
 
         int bufferSize = BufferSize;
 
@@ -120,7 +131,7 @@ public sealed class IpHelpApiWrapper : IDisposable
         {
             records.Add(new
                 (
-                    state: (MibState)BitConverter.ToUInt32(_bufferArray, i + 0),
+                    state: (ConnectionState)BitConverter.ToUInt32(_bufferArray, i + 0),
                     localAddress: BitConverter.ToUInt32(_bufferArray, i + 4),
                     localPort: (ushort)((_bufferArray[i + 8] << 8) + _bufferArray[i + 9]),
                     remoteAddress: BitConverter.ToUInt32(_bufferArray, i + 12),
@@ -134,12 +145,12 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #endregion
 
-    #region GetModuleTcp4Connections()
+    #region GetModuleTcp4Connections
 
-    public List<Tcp4ModuleRecord> GetModuleTcp4Connections(TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL, bool sortedOrder = false)
+    public List<Tcp4ModuleRecord> GetModuleTcp4Connections(TcpTableClass tcpTable = TcpTableClass.ModuleAll, bool sortedOrder = false)
     {
         ThrowIfDisposed();
-        if (!(tcpTable is TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL or TcpTableClass.TCP_TABLE_OWNER_MODULE_CONNECTIONS or TcpTableClass.TCP_TABLE_OWNER_MODULE_LISTENER)) throw new ArgumentException("GetModuleTcp4Connections() supports only modules");
+        if (!(tcpTable is TcpTableClass.ModuleAll or TcpTableClass.ModuleConnections or TcpTableClass.ModuleListeners)) throw new ArgumentException("GetModuleTcp4Connections supports only modules");
 
         int bufferSize = BufferSize;
 
@@ -169,7 +180,7 @@ public sealed class IpHelpApiWrapper : IDisposable
         {
             records.Add(new
                 (
-                    state: (MibState)BitConverter.ToUInt32(_bufferArray, i + 0),
+                    state: (ConnectionState)BitConverter.ToUInt32(_bufferArray, i + 0),
                     localAddress: BitConverter.ToUInt32(_bufferArray, i + 4),
                     localPort: (ushort)((_bufferArray[i + 8] << 8) + _bufferArray[i + 9]),
                     remoteAddress: BitConverter.ToUInt32(_bufferArray, i + 12),
@@ -186,12 +197,12 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #endregion
 
-    #region GetBasicTcp4Connections()
+    #region GetBasicTcp4Connections
 
-    public List<Tcp4Record> GetBasicTcp4Connections(TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_BASIC_ALL, bool sortedOrder = false)
+    public List<Tcp4Record> GetBasicTcp4Connections(TcpTableClass tcpTable = TcpTableClass.BasicAll, bool sortedOrder = false)
     {
         ThrowIfDisposed();
-        if (!(tcpTable is TcpTableClass.TCP_TABLE_BASIC_ALL or TcpTableClass.TCP_TABLE_BASIC_CONNECTIONS or TcpTableClass.TCP_TABLE_BASIC_LISTENER)) throw new ArgumentException("GetBasicTcp4Connections() supports only basic");
+        if (!(tcpTable is TcpTableClass.BasicAll or TcpTableClass.BasicConnections or TcpTableClass.BasicListeners)) throw new ArgumentException("GetBasicTcp4Connections supports only basic");
 
         int bufferSize = BufferSize;
 
@@ -221,7 +232,7 @@ public sealed class IpHelpApiWrapper : IDisposable
         {
             records.Add(new
                 (
-                    state: (MibState)BitConverter.ToUInt32(_bufferArray, i + 0),
+                    state: (ConnectionState)BitConverter.ToUInt32(_bufferArray, i + 0),
                     localAddress: BitConverter.ToUInt32(_bufferArray, i + 4),
                     localPort: (ushort)((_bufferArray[i + 8] << 8) + _bufferArray[i + 9]),
                     remoteAddress: BitConverter.ToUInt32(_bufferArray, i + 12),
@@ -238,23 +249,23 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #region TCP6 Functions
 
-    public IEnumerable<Tcp6Record> GetTcp6Connections(TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_OWNER_PID_ALL, bool sortedOrder = false)
+    public IEnumerable<Tcp6Record> GetTcp6Connections(TcpTableClass tcpTable = TcpTableClass.ProcessAll, bool sortedOrder = false)
     {
         return tcpTable switch
         {
-            TcpTableClass.TCP_TABLE_BASIC_ALL or TcpTableClass.TCP_TABLE_BASIC_LISTENER or TcpTableClass.TCP_TABLE_BASIC_CONNECTIONS => throw new InvalidOperationException("GetTcp6Connections() doesnt support TcpTableClass.TCP_TABLE_BASIC_*"),
-            TcpTableClass.TCP_TABLE_OWNER_PID_ALL or TcpTableClass.TCP_TABLE_OWNER_PID_LISTENER or TcpTableClass.TCP_TABLE_OWNER_PID_CONNECTIONS => GetProcessTcp6Connections(tcpTable, sortedOrder).Cast<Tcp6Record>(),
-            TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL or TcpTableClass.TCP_TABLE_OWNER_MODULE_LISTENER or TcpTableClass.TCP_TABLE_OWNER_MODULE_CONNECTIONS => GetModuleTcp6Connections(tcpTable, sortedOrder).Cast<Tcp6Record>(),
+            TcpTableClass.BasicAll or TcpTableClass.BasicListeners or TcpTableClass.BasicConnections => throw new InvalidOperationException("GetTcp6Connections doesnt support TcpTableClass.TCP_TABLE_BASIC_*"),
+            TcpTableClass.ProcessAll or TcpTableClass.ProcessListeners or TcpTableClass.ProcessConnections => GetProcessTcp6Connections(tcpTable, sortedOrder).Cast<Tcp6Record>(),
+            TcpTableClass.ModuleAll or TcpTableClass.ModuleListeners or TcpTableClass.ModuleConnections => GetModuleTcp6Connections(tcpTable, sortedOrder).Cast<Tcp6Record>(),
             _ => throw new ArgumentException("Invalid argument: tcpTable"),
         };
     }
 
-    #region GetProcessTcp6Connections()
+    #region GetProcessTcp6Connections
 
-    public List<Tcp6ProcessRecord> GetProcessTcp6Connections(TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_OWNER_PID_ALL, bool sortedOrder = false)
+    public List<Tcp6ProcessRecord> GetProcessTcp6Connections(TcpTableClass tcpTable = TcpTableClass.ProcessAll, bool sortedOrder = false)
     {
         ThrowIfDisposed();
-        if (!(tcpTable is TcpTableClass.TCP_TABLE_OWNER_PID_ALL or TcpTableClass.TCP_TABLE_OWNER_PID_CONNECTIONS or TcpTableClass.TCP_TABLE_OWNER_PID_LISTENER)) throw new ArgumentException("GetProcessTcp6Connections() supports only processes");
+        if (!(tcpTable is TcpTableClass.ProcessAll or TcpTableClass.ProcessConnections or TcpTableClass.ProcessListeners)) throw new ArgumentException("GetProcessTcp6Connections supports only processes");
 
         int bufferSize = BufferSize;
 
@@ -290,7 +301,7 @@ public sealed class IpHelpApiWrapper : IDisposable
                     remoteAddress: _bufferArray[(i + 24)..(i + 40)],
                     remoteScopeId: BitConverter.ToUInt32(_bufferArray, i + 40),
                     remotePort: (ushort)((_bufferArray[i + 44] << 8) + _bufferArray[i + 45]),
-                    state: (MibState)BitConverter.ToUInt32(_bufferArray, i + 48),
+                    state: (ConnectionState)BitConverter.ToUInt32(_bufferArray, i + 48),
                     processId: BitConverter.ToInt32(_bufferArray, i + 52)
                 )
             );
@@ -300,12 +311,12 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #endregion
 
-    #region GetModuleTcp6Connections()
+    #region GetModuleTcp6Connections
 
-    public List<Tcp6ModuleRecord> GetModuleTcp6Connections(TcpTableClass tcpTable = TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL, bool sortedOrder = false)
+    public List<Tcp6ModuleRecord> GetModuleTcp6Connections(TcpTableClass tcpTable = TcpTableClass.ModuleAll, bool sortedOrder = false)
     {
         ThrowIfDisposed();
-        if (!(tcpTable is TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL or TcpTableClass.TCP_TABLE_OWNER_MODULE_CONNECTIONS or TcpTableClass.TCP_TABLE_OWNER_MODULE_LISTENER)) throw new ArgumentException("GetModuleTcp6Connections() supports only modules");
+        if (!(tcpTable is TcpTableClass.ModuleAll or TcpTableClass.ModuleConnections or TcpTableClass.ModuleListeners)) throw new ArgumentException("GetModuleTcp6Connections supports only modules");
 
         int bufferSize = BufferSize;
 
@@ -341,7 +352,7 @@ public sealed class IpHelpApiWrapper : IDisposable
                     remoteAddress: _bufferArray[(i + 24)..(i + 40)],
                     remoteScopeId: BitConverter.ToUInt32(_bufferArray, i + 40),
                     remotePort: (ushort)((_bufferArray[i + 44] << 8) + _bufferArray[i + 45]),
-                    state: (MibState)BitConverter.ToUInt32(_bufferArray, i + 48),
+                    state: (ConnectionState)BitConverter.ToUInt32(_bufferArray, i + 48),
                     processId: BitConverter.ToInt32(_bufferArray, i + 52),
                     createTimestamp: BitConverter.ToInt64(_bufferArray, i + 56),
                     moduleInfo: MemoryMarshal.Cast<byte, ulong>(_bufferArray.AsSpan(64, 128)).ToArray()
@@ -371,23 +382,23 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #region UDP4 Functions
 
-    public IEnumerable<Udp4Record> GetUdp4Connections(UdpTableClass udpTable = UdpTableClass.UDP_TABLE_BASIC, bool sortedOrder = false)
+    public IEnumerable<Udp4Record> GetUdp4Connections(UdpTableClass udpTable = UdpTableClass.Basic, bool sortedOrder = false)
     {
         return udpTable switch
         {
-            UdpTableClass.UDP_TABLE_BASIC => GetBasicUdp4Connections(udpTable, sortedOrder),
-            UdpTableClass.UDP_TABLE_OWNER_MODULE => GetModuleUdp4Connections(udpTable, sortedOrder).Cast<Udp4Record>(),
-            UdpTableClass.UDP_TABLE_OWNER_PID => GetProcessUdp4Connections(udpTable, sortedOrder).Cast<Udp4Record>(),
+            UdpTableClass.Basic => GetBasicUdp4Connections(udpTable, sortedOrder),
+            UdpTableClass.Module => GetModuleUdp4Connections(udpTable, sortedOrder).Cast<Udp4Record>(),
+            UdpTableClass.Process => GetProcessUdp4Connections(udpTable, sortedOrder).Cast<Udp4Record>(),
             _ => throw new ArgumentException("Invalid argument: udpTable"),
         };
     }
 
-    #region GetProcessUdp4Connections()
+    #region GetProcessUdp4Connections
 
-    public List<Udp4ProcessRecord> GetProcessUdp4Connections(UdpTableClass udpTable = UdpTableClass.UDP_TABLE_OWNER_PID, bool sortedOrder = false)
+    public List<Udp4ProcessRecord> GetProcessUdp4Connections(UdpTableClass udpTable = UdpTableClass.Process, bool sortedOrder = false)
     {
         ThrowIfDisposed();
-        if (!(udpTable is UdpTableClass.UDP_TABLE_OWNER_PID)) throw new ArgumentException("GetProcessUdp4Connections() supports only processes");
+        if (udpTable is not UdpTableClass.Process) throw new ArgumentException("GetProcessUdp4Connections supports only processes");
 
         int bufferSize = BufferSize;
 
@@ -428,12 +439,12 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #endregion
 
-    #region GetModuleUdp4Connections()
+    #region GetModuleUdp4Connections
 
-    public List<Udp4ModuleRecord> GetModuleUdp4Connections(UdpTableClass udpTable = UdpTableClass.UDP_TABLE_OWNER_MODULE, bool sortedOrder = false)
+    public List<Udp4ModuleRecord> GetModuleUdp4Connections(UdpTableClass udpTable = UdpTableClass.Module, bool sortedOrder = false)
     {
         ThrowIfDisposed();
-        if (!(udpTable is UdpTableClass.UDP_TABLE_OWNER_MODULE)) throw new ArgumentException("GetModuleUdp4Connections() supports only modules");
+        if (udpTable is not UdpTableClass.Module) throw new ArgumentException("GetModuleUdp4Connections supports only modules");
 
         int bufferSize = BufferSize;
 
@@ -478,12 +489,12 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #endregion
 
-    #region GetBasicUdp4Connections()
+    #region GetBasicUdp4Connections
 
-    public List<Udp4Record> GetBasicUdp4Connections(UdpTableClass udpTable = UdpTableClass.UDP_TABLE_BASIC, bool sortedOrder = false)
+    public List<Udp4Record> GetBasicUdp4Connections(UdpTableClass udpTable = UdpTableClass.Basic, bool sortedOrder = false)
     {
         ThrowIfDisposed();
-        if (!(udpTable is UdpTableClass.UDP_TABLE_BASIC)) throw new ArgumentException("GetBasicUdp4Connections() supports only basic");
+        if (udpTable is not UdpTableClass.Basic) throw new ArgumentException("GetBasicUdp4Connections supports only basic");
 
         int bufferSize = BufferSize;
 
@@ -527,23 +538,23 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #region UDP6 Functions
 
-    public IEnumerable<Udp6Record> GetUdp6Connections(UdpTableClass udpTable = UdpTableClass.UDP_TABLE_BASIC, bool sortedOrder = false)
+    public IEnumerable<Udp6Record> GetUdp6Connections(UdpTableClass udpTable = UdpTableClass.Basic, bool sortedOrder = false)
     {
         return udpTable switch
         {
-            UdpTableClass.UDP_TABLE_BASIC => GetBasicUdp6Connections(udpTable, sortedOrder),
-            UdpTableClass.UDP_TABLE_OWNER_MODULE => GetModuleUdp6Connections(udpTable, sortedOrder).Cast<Udp6Record>(),
-            UdpTableClass.UDP_TABLE_OWNER_PID => GetProcessUdp6Connections(udpTable, sortedOrder).Cast<Udp6Record>(),
+            UdpTableClass.Basic => GetBasicUdp6Connections(udpTable, sortedOrder),
+            UdpTableClass.Module => GetModuleUdp6Connections(udpTable, sortedOrder).Cast<Udp6Record>(),
+            UdpTableClass.Process => GetProcessUdp6Connections(udpTable, sortedOrder).Cast<Udp6Record>(),
             _ => throw new ArgumentException("Invalid argument: udpTable"),
         };
     }
 
-    #region GetProcessUdp6Connections()
+    #region GetProcessUdp6Connections
 
-    public List<Udp6ProcessRecord> GetProcessUdp6Connections(UdpTableClass udpTable = UdpTableClass.UDP_TABLE_OWNER_PID, bool sortedOrder = false)
+    public List<Udp6ProcessRecord> GetProcessUdp6Connections(UdpTableClass udpTable = UdpTableClass.Process, bool sortedOrder = false)
     {
         ThrowIfDisposed();
-        if (!(udpTable is UdpTableClass.UDP_TABLE_OWNER_PID)) throw new ArgumentException("GetProcessUdp6Connections() supports only processes");
+        if (udpTable is not UdpTableClass.Process) throw new ArgumentException("GetProcessUdp6Connections supports only processes");
 
         int bufferSize = BufferSize;
 
@@ -585,12 +596,12 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #endregion
 
-    #region GetModuleUdp6Connections()
+    #region GetModuleUdp6Connections
 
-    public List<Udp6ModuleRecord> GetModuleUdp6Connections(UdpTableClass udpTable = UdpTableClass.UDP_TABLE_OWNER_MODULE, bool sortedOrder = false)
+    public List<Udp6ModuleRecord> GetModuleUdp6Connections(UdpTableClass udpTable = UdpTableClass.Module, bool sortedOrder = false)
     {
         ThrowIfDisposed();
-        if (!(udpTable is UdpTableClass.UDP_TABLE_OWNER_MODULE)) throw new ArgumentException("GetModuleUdp6Connections() supports only modules");
+        if (udpTable is not UdpTableClass.Module) throw new ArgumentException("GetModuleUdp6Connections supports only modules");
 
         int bufferSize = BufferSize;
 
@@ -636,12 +647,12 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #endregion
 
-    #region GetBasicUdp6Connections()
+    #region GetBasicUdp6Connections
 
-    public List<Udp6Record> GetBasicUdp6Connections(UdpTableClass udpTable = UdpTableClass.UDP_TABLE_BASIC, bool sortedOrder = false)
+    public List<Udp6Record> GetBasicUdp6Connections(UdpTableClass udpTable = UdpTableClass.Basic, bool sortedOrder = false)
     {
         ThrowIfDisposed();
-        if (!(udpTable is UdpTableClass.UDP_TABLE_BASIC)) throw new ArgumentException("GetBasicUdp6Connections() supports only basic");
+        if (udpTable is not UdpTableClass.Basic) throw new ArgumentException("GetBasicUdp6Connections supports only basic");
 
         int bufferSize = BufferSize;
 
@@ -686,10 +697,57 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #endregion
 
+    #region GetIpNetTableRecords()
+
+    public List<PhysicalAddressRecord> GetIpNetTableRecords(bool sortedOrder = false)
+    {
+        ThrowIfDisposed();
+
+        int bufferSize = BufferSize;
+
+        lock (_bufferLockObject)
+        {
+            int errorCode = GetIpNetTable(_buffer, ref bufferSize, sortedOrder);
+
+            while (AutoResizeBuffer && (errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER))
+            {
+                SetBufferSize(bufferSize);
+                errorCode = GetIpNetTable(_buffer, ref bufferSize, sortedOrder);
+            }
+
+            HandleErrorCode((uint)errorCode);
+            if (errorCode == (int)ErrorReturnCodes.ERROR_NO_DATA) return new();
+
+            return CreatePhysicalAddressRecordListFromBuffer(bufferSize);
+        }
+    }
+
+    private List<PhysicalAddressRecord> CreatePhysicalAddressRecordListFromBuffer(int allocatedSize)
+    {
+        int singleSize = 24;
+        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
+        int num = (int)BitConverter.ToUInt32(_bufferArray);
+        List<PhysicalAddressRecord> records = new(num);
+        allocatedSize = 4 + (singleSize * num);
+        for (int i = 4; i < allocatedSize; i += singleSize)
+        {
+            records.Add(new
+                (
+                    physicalAddress: _bufferArray[(i + 8)..(i + 14)],
+                    ipAddress: BitConverter.ToUInt32(_bufferArray, i + 16),
+                    netType: (IpNetType)BitConverter.ToUInt32(_bufferArray, i + 20)
+                )
+            );
+        }
+        return records;
+    }
+
+    #endregion
+
     private static void HandleErrorCode(uint errorCode)
     {
         if (errorCode == (int)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER) throw new OutOfMemoryException("Buffer is too small");
-        if (errorCode != (int)ErrorReturnCodes.NO_ERROR) throw new ExternalException("iphlpapi.dll returned an error code: " + errorCode);
+        if (errorCode != (int)ErrorReturnCodes.NO_ERROR && (errorCode != (int)ErrorReturnCodes.ERROR_NO_DATA)) throw new Win32Exception((int)errorCode);
     }
 
     private void ThrowIfDisposed()
@@ -1176,3 +1234,42 @@ public class Udp6ModuleRecord : Udp6ProcessRecord
 #endregion
 
 #endregion
+
+public class PhysicalAddressRecord
+{
+
+    public readonly uint IpAddressInt;
+
+    private IPAddress? _ipAddress;
+
+    public IPAddress IpAddress
+    {
+        get
+        {
+            _ipAddress ??= new(IpAddressInt);
+            return _ipAddress;
+        }
+    }
+
+    public readonly byte[] PhysicalAddressBytes;
+
+    private PhysicalAddress? _physicalAddress;
+
+    public PhysicalAddress PhysicalAddress
+    {
+        get
+        {
+            _physicalAddress ??= new(PhysicalAddressBytes);
+            return _physicalAddress;
+        }
+    }
+
+    public readonly IpNetType NetType;
+
+    public PhysicalAddressRecord(uint ipAddress, byte[] physicalAddress, IpNetType netType)
+    {
+        IpAddressInt = ipAddress;
+        PhysicalAddressBytes = physicalAddress;
+        NetType = netType;
+    }
+}
