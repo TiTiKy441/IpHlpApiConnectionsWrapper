@@ -83,8 +83,8 @@ using(IpHelpApiWrapper wrapper = new IpHelpApiWrapper())
     List<Udp6ModuleRecord> udp6ModuleRecordList = wrapper.GetModuleUdp6Connections();
     List<PhysicalAddressRecord> records = wrapper.GetIpNetTableRecords();
 
-    tcp4ProcessRecordList = wrapper.GetTcpTable(AddressFamily.InterNetwork, TcpTableClass.TCP_TABLE_OWNER_PID_ALL).Cast<Tcp4ProcessRecord>().ToList();
-    tcp6ModuleRecordList = wrapper.GetTcpTable(AddressFamily.InterNetworkV6, TcpTableClass.TCP_TABLE_OWNER_MODULE_ALL).Cast<Tcp6ModuleRecord>().ToList();
+    tcp4ProcessRecordList = wrapper.GetTcpTable(AddressFamily.InterNetwork, TcpTableClass.ProcessConnections).Cast<Tcp4ProcessRecord>().ToList();
+    tcp6ModuleRecordList = wrapper.GetTcpTable(AddressFamily.InterNetworkV6, TcpTableClass.ModuleConnections).Cast<Tcp6ModuleRecord>().ToList();
 }
 ```
 
