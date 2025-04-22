@@ -96,7 +96,9 @@ Available static functions:
 
    Resolves PhysicalAddress by sending ARP request to the target or by getting the PhysicalAddress from the ARP entries list
 
-## Example
+## Examples
+
+Using freshly created wrapper:
 
 ```C#
 using(IpHelpApiWrapper wrapper = new IpHelpApiWrapper())
@@ -116,6 +118,42 @@ using(IpHelpApiWrapper wrapper = new IpHelpApiWrapper())
    tcp4ProcessRecordList = wrapper.GetTcpTable(AddressFamily.InterNetwork, TcpTableClass.ProcessConnections).Cast<Tcp4ProcessRecord>().ToArray();
    tcp6ModuleRecordList = wrapper.GetTcpTable(AddressFamily.InterNetworkV6, TcpTableClass.ModuleConnections).Cast<Tcp6ModuleRecord>().ToArray();
 }
+```
+
+Using shared wrapper instance:
+```C#
+Tcp4ProcessRecord[] tcp4ProcessRecordList = IpHelpApiWrapper.Shared.GetProcessTcp4Connections();
+Tcp4ModuleRecord[] tcp4ModuleRecordList = IpHelpApiWrapper.Shared.GetModuleTcp4Connections();
+Tcp4Record[] tcp4BasicRecordList = IpHelpApiWrapper.Shared.GetBasicTcp4Connections();
+Udp4ProcessRecord[] udp4ProcessRecordList = IpHelpApiWrapper.Shared.GetProcessUdp4Connections();
+Udp4ModuleRecord[] udp4ModuleRecordList = IpHelpApiWrapper.Shared.GetModuleUdp4Connections();
+Udp4Record[] udp4BasicRecordList = IpHelpApiWrapper.Shared.GetBasicUdp4Connections();
+Tcp6ProcessRecord[] tcp6ProcessRecordList = IpHelpApiWrapper.Shared.GetProcessTcp6Connections();
+Tcp6ModuleRecord[] tcp6ModuleRecordList = IpHelpApiWrapper.Shared.GetModuleTcp6Connections();
+Udp6ProcessRecord[] udp6ProcessRecordList = IpHelpApiWrapper.Shared.GetProcessUdp6Connections();
+Udp6ModuleRecord[] udp6ModuleRecordList = IpHelpApiWrapper.Shared.GetModuleUdp6Connections();
+PhysicalAddressRecord[] ipNetRecordList = IpHelpApiWrapper.Shared.GetIpNetTableRecords();
+
+tcp4ProcessRecordList = IpHelpApiWrapper.Shared.GetTcpTable(AddressFamily.InterNetwork, TcpTableClass.ProcessConnections).Cast<Tcp4ProcessRecord>().ToArray();
+tcp6ModuleRecordList = IpHelpApiWrapper.Shared.GetTcpTable(AddressFamily.InterNetworkV6, TcpTableClass.ModuleConnections).Cast<Tcp6ModuleRecord>().ToArray();
+```
+
+Using static functions:
+```C#
+//Retrieves main network interface
+public static NetworkInterface GetMainNetworkInterface()
+{
+    return IpHelpApiWrapper.GetBestInterface4(IPAddress.Any);
+}
+
+//
+public static PhysicalAddress GetGatewayPhysicalAddress()
+{
+    IPAddress targetAddress = IpHelpApiWrapper.GetBestInterface4(IPAddress.Any).GetIPProperties().GatewayAddresses.Last().Address;.;
+    PhysicalAddressRecord[] records = IpHelpApiWrapper.Shared.GetIpNetTableRecords(); // List of ip addresses and their physical addresses
+    PhysicalAddress? found = Array.Find(records, x => x.IpAddress.Equals(targetAddress) && (x.NetType != IpNetType.Invalid))?.PhysicalAddress;
+    if (found == null) throw new AggregateException("Gateway address was not found in the table");
+    return found;
 ```
 
 ## Performance recomendations
