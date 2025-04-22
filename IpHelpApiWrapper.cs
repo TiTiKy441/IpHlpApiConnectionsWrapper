@@ -4,38 +4,56 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 
+
 /**
  * Fast iphlpapi.dll wrapper for getting all tcp and udp connections
  * 
  * Only one call at a time, cant call from other threads if the wrapper is busy
- * 
- * By default the size of the Buffer to store the results of external calls is 64 kb
  **/
 public sealed class IpHelpApiWrapper : IDisposable
 {
 
     /**
-     * PtrToStructure is BAD!
+     * PtrToStructure is bad for performance;
+     * 
+     * This code uses an internal buffer to store results of calls to iphlpapi, iphlpapi writes directly to this buffer
+     * 
+     * No unsafe code
      **/
 
     public const string LibraryName = "iphlpapi.dll";
 
-    [DllImport(LibraryName, CharSet = CharSet.Auto, SetLastError = true)]
+    #region Native functions
+
+    [DllImport(LibraryName, CharSet = CharSet.Auto, ExactSpelling = true, SetLastError = true)]
     private static extern uint GetExtendedTcpTable(IntPtr pTcpTable, ref int pdwSize, bool bOrder, int ulAf, TcpTableClass tableClass, uint reserved = 0);
 
-    [DllImport(LibraryName, CharSet = CharSet.Auto, SetLastError = true)]
+    [DllImport(LibraryName, CharSet = CharSet.Auto, ExactSpelling = true, SetLastError = true)]
     private static extern uint GetExtendedUdpTable(IntPtr pUdpTable, ref int pdwSize, bool bOrder, int ulAf, UdpTableClass tableClass, uint reserved = 0);
 
-    [DllImport(LibraryName, CharSet = CharSet.Auto, SetLastError = true)]
-    private static extern int GetIpNetTable(IntPtr pIpNetTable, ref int pdwSize, bool bOrder);
+    [DllImport(LibraryName, CharSet = CharSet.Auto, ExactSpelling = true, SetLastError = true)]
+    private static extern uint GetIpNetTable(IntPtr pIpNetTable, ref int pdwSize, bool bOrder);
 
-    private int _bufferSize;
+    [DllImport(LibraryName, CharSet = CharSet.Auto, ExactSpelling = true, SetLastError = true)]
+    private static extern uint GetBestInterface(uint dwDestAddr, ref uint pdwBestIfIndex);
 
+    [DllImport(LibraryName, CharSet = CharSet.Auto, ExactSpelling = true, SetLastError = true)]
+    private static extern uint GetBestInterfaceEx(IntPtr dwDestAddr, ref uint pdwBestIfIndex);
+
+    [DllImport(LibraryName, CharSet = CharSet.Auto, ExactSpelling = true, SetLastError = true)]
+    private static extern uint SendARP(uint DestIP, uint SrcIP, byte[] pMacAddr, ref int PhyAddrLen);
+
+    #endregion
+
+    /// <summary>
+    /// Gets or sets the size of the internal buffer to store results
+    /// When UseSharedArrayPool is true, BufferSize is not always equals to the one set, but it's always >= to the one set
+    /// </summary>
     public int BufferSize
     {
         get
         {
-            return _bufferSize;
+            return _bufferArray.Length;
         }
         set
         {
@@ -43,31 +61,67 @@ public sealed class IpHelpApiWrapper : IDisposable
         }
     }
 
-    private IntPtr _buffer;
+    private IntPtr _bufferPtr;
 
     private byte[] _bufferArray;
 
-    private readonly object _bufferLockObject = new();
+    private GCHandle _bufferGCHandle;
 
-    private bool _disposed = false;
+    public bool Disposed { get; private set; } = false;
 
+    /// <summary>
+    /// Gets or sets the flag indicating whenever the buffer should be auto resized if it's not enough to store the results of the external call
+    /// </summary>
     public bool AutoResizeBuffer;
 
-    public IpHelpApiWrapper(int bufferSize = 64 * 1024, bool autoResizeBuffer = true)
+    /// <summary>
+    /// Gets the Array pool used by the wrapper; if UsedArrayPool is null, no array pool is used
+    /// </summary>
+    public readonly ArrayPool<byte>? UsedArrayPool = null;
+
+    /// <summary>
+    /// Shared instance of the wrapper. Uses shared array pool as buffer
+    /// DO NOT DISPOSE
+    /// </summary>
+    public static readonly IpHelpApiWrapper Shared = new(arrayPool: ArrayPool<byte>.Shared);
+
+    /// <summary>
+    /// Creates new IpHelpApiWrapper
+    /// </summary>
+    /// <param name="bufferSize">Size of internal buffer for storing results of external calls</param>
+    /// <param name="autoResizeBuffer">If set to true, internal buffer would be auto resized when it's not big enough</param>
+    /// <param name="arrayPool">Array pool to get internal byte array buffers; if set to null, allocates new byte array for internal buffer</param>
+    public IpHelpApiWrapper(int bufferSize = 16 * 1024, bool autoResizeBuffer = true, ArrayPool<byte>? arrayPool = null)
     {
-        _bufferSize = bufferSize;
-        _buffer = Marshal.AllocHGlobal(_bufferSize);
-        _bufferArray = new byte[_bufferSize];
+        UsedArrayPool = arrayPool;
+        _bufferArray = (UsedArrayPool != null) ? UsedArrayPool.Rent(bufferSize) : new byte[bufferSize];
+        _bufferGCHandle = GCHandle.Alloc(_bufferArray, GCHandleType.Pinned);
+        _bufferPtr = _bufferGCHandle.AddrOfPinnedObject();
         AutoResizeBuffer = autoResizeBuffer;
     }
 
+    /// <summary>
+    /// Changes size of internal buffer
+    /// </summary>
+    /// <param name="newSize">New buffer size</param>
     public void SetBufferSize(int newSize)
     {
-        lock (_bufferLockObject)
+        ThrowIfDisposed();
+        lock (_bufferArray)
         {
-            _buffer = Marshal.ReAllocHGlobal(_buffer, (IntPtr)newSize);
-            Array.Resize(ref _bufferArray, newSize);
-            _bufferSize = newSize;
+            _bufferGCHandle.Free();
+
+            if (UsedArrayPool != null)
+            {
+                UsedArrayPool.Return(_bufferArray, true);
+                _bufferArray = UsedArrayPool.Rent(newSize);
+            }
+            else
+            {
+                Array.Resize(ref _bufferArray, newSize);
+            }
+            _bufferGCHandle = GCHandle.Alloc(_bufferArray, GCHandleType.Pinned);
+            _bufferPtr = _bufferGCHandle.AddrOfPinnedObject();
         }
     }
 
@@ -98,38 +152,37 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #region GetProcessTcp4Connections
 
-    public List<Tcp4ProcessRecord> GetProcessTcp4Connections(TcpTableClass tcpTable = TcpTableClass.ProcessAll, bool sortedOrder = false)
+    public Tcp4ProcessRecord[] GetProcessTcp4Connections(TcpTableClass tcpTable = TcpTableClass.ProcessAll, bool sortedOrder = false)
     {
         ThrowIfDisposed();
         if (!(tcpTable is TcpTableClass.ProcessAll or TcpTableClass.ProcessConnections or TcpTableClass.ProcessListeners)) throw new ArgumentException("GetProcessTcp4Connections supports only processes");
 
         int bufferSize = BufferSize;
 
-        lock (_bufferLockObject)
+        lock (_bufferArray)
         {
-            uint errorCode = GetExtendedTcpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, tcpTable);
+            uint errorCode = GetExtendedTcpTable(_bufferPtr, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, tcpTable);
 
-            while (AutoResizeBuffer && (errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER))
+            while ((errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER) && AutoResizeBuffer)
             {
                 SetBufferSize(bufferSize);
-                errorCode = GetExtendedTcpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, tcpTable);
+                errorCode = GetExtendedTcpTable(_bufferPtr, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, tcpTable);
             }
 
             HandleErrorCode(errorCode);
 
-            return CreateTcp4ProcessRecordListFromBuffer(bufferSize);
+            return CreateTcp4ProcessRecordArrayFromBuffer(bufferSize);
         }
     }
 
-    private List<Tcp4ProcessRecord> CreateTcp4ProcessRecordListFromBuffer(int allocatedSize)
+    private Tcp4ProcessRecord[] CreateTcp4ProcessRecordArrayFromBuffer(int allocatedSize)
     {
         int singleSize = 24;
-        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
         int num = (int)BitConverter.ToUInt32(_bufferArray);
-        List<Tcp4ProcessRecord> records = new(num);
-        for (int i = 4; i < (allocatedSize - singleSize); i += singleSize)
+        Tcp4ProcessRecord[] records = new Tcp4ProcessRecord[num];
+        for (int k = 0, i = 4; k < num; k++)
         {
-            records.Add(new
+            records[k] = new
                 (
                     state: (ConnectionState)BitConverter.ToUInt32(_bufferArray, i + 0),
                     localAddress: BitConverter.ToUInt32(_bufferArray, i + 4),
@@ -137,8 +190,8 @@ public sealed class IpHelpApiWrapper : IDisposable
                     remoteAddress: BitConverter.ToUInt32(_bufferArray, i + 12),
                     remotePort: (ushort)((_bufferArray[i + 16] << 8) + _bufferArray[i + 17]),
                     processId: BitConverter.ToInt32(_bufferArray, i + 20)
-                )
-            );
+                );
+            i += singleSize;
         }
         return records;
     }
@@ -147,38 +200,37 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #region GetModuleTcp4Connections
 
-    public List<Tcp4ModuleRecord> GetModuleTcp4Connections(TcpTableClass tcpTable = TcpTableClass.ModuleAll, bool sortedOrder = false)
+    public Tcp4ModuleRecord[] GetModuleTcp4Connections(TcpTableClass tcpTable = TcpTableClass.ModuleAll, bool sortedOrder = false)
     {
         ThrowIfDisposed();
         if (!(tcpTable is TcpTableClass.ModuleAll or TcpTableClass.ModuleConnections or TcpTableClass.ModuleListeners)) throw new ArgumentException("GetModuleTcp4Connections supports only modules");
 
         int bufferSize = BufferSize;
 
-        lock (_bufferLockObject)
+        lock (_bufferArray)
         {
-            uint errorCode = GetExtendedTcpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, tcpTable);
+            uint errorCode = GetExtendedTcpTable(_bufferPtr, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, tcpTable);
 
-            while (AutoResizeBuffer && (errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER))
+            while ((errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER) && AutoResizeBuffer)
             {
                 SetBufferSize(bufferSize);
-                errorCode = GetExtendedTcpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, tcpTable);
+                errorCode = GetExtendedTcpTable(_bufferPtr, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, tcpTable);
             }
 
             HandleErrorCode(errorCode);
 
-            return CreateTcp4ModuleRecordListFromBuffer(bufferSize);
+            return CreateTcp4ModuleRecordArrayFromBuffer(bufferSize);
         }
     }
 
-    private List<Tcp4ModuleRecord> CreateTcp4ModuleRecordListFromBuffer(int allocatedSize)
+    private Tcp4ModuleRecord[] CreateTcp4ModuleRecordArrayFromBuffer(int allocatedSize)
     {
         int singleSize = 160;
-        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
         int num = (int)BitConverter.ToUInt32(_bufferArray);
-        List<Tcp4ModuleRecord> records = new(num);
-        for (int i = 8; i < (allocatedSize - singleSize); i += singleSize)
+        Tcp4ModuleRecord[] records = new Tcp4ModuleRecord[num];
+        for (int k = 0, i = 8; k < num; k++)
         {
-            records.Add(new
+            records[k] = new
                 (
                     state: (ConnectionState)BitConverter.ToUInt32(_bufferArray, i + 0),
                     localAddress: BitConverter.ToUInt32(_bufferArray, i + 4),
@@ -188,8 +240,8 @@ public sealed class IpHelpApiWrapper : IDisposable
                     processId: BitConverter.ToInt32(_bufferArray, i + 20),
                     createTimestamp: BitConverter.ToInt64(_bufferArray, i + 24),
                     moduleInfo: MemoryMarshal.Cast<byte, ulong>(_bufferArray.AsSpan(32, 128)).ToArray()
-                )
-            );
+                );
+            i += singleSize;
         }
 
         return records;
@@ -199,46 +251,45 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #region GetBasicTcp4Connections
 
-    public List<Tcp4Record> GetBasicTcp4Connections(TcpTableClass tcpTable = TcpTableClass.BasicAll, bool sortedOrder = false)
+    public Tcp4Record[] GetBasicTcp4Connections(TcpTableClass tcpTable = TcpTableClass.BasicAll, bool sortedOrder = false)
     {
         ThrowIfDisposed();
         if (!(tcpTable is TcpTableClass.BasicAll or TcpTableClass.BasicConnections or TcpTableClass.BasicListeners)) throw new ArgumentException("GetBasicTcp4Connections supports only basic");
 
         int bufferSize = BufferSize;
 
-        lock (_bufferLockObject)
+        lock (_bufferArray)
         {
-            uint errorCode = GetExtendedTcpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, tcpTable);
+            uint errorCode = GetExtendedTcpTable(_bufferPtr, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, tcpTable);
 
-            while (AutoResizeBuffer && (errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER))
+            while ((errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER) && AutoResizeBuffer)
             {
                 SetBufferSize(bufferSize);
-                errorCode = GetExtendedTcpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, tcpTable);
+                errorCode = GetExtendedTcpTable(_bufferPtr, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, tcpTable);
             }
 
             HandleErrorCode(errorCode);
 
-            return CreateTcp4BasicRecordListFromBuffer(bufferSize);
+            return CreateTcp4BasicRecordArrayFromBuffer(bufferSize);
         }
     }
 
-    private List<Tcp4Record> CreateTcp4BasicRecordListFromBuffer(int allocatedSize)
+    private Tcp4Record[] CreateTcp4BasicRecordArrayFromBuffer(int allocatedSize)
     {
         int singleSize = 20;
-        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
         int num = (int)BitConverter.ToUInt32(_bufferArray);
-        List<Tcp4Record> records = new(num);
-        for (int i = 4; i < (allocatedSize - singleSize); i += singleSize)
+        Tcp4Record[] records = new Tcp4Record[num];
+        for (int k = 0, i = 4; k < num; k++)
         {
-            records.Add(new
+            records[k] = new
                 (
                     state: (ConnectionState)BitConverter.ToUInt32(_bufferArray, i + 0),
                     localAddress: BitConverter.ToUInt32(_bufferArray, i + 4),
                     localPort: (ushort)((_bufferArray[i + 8] << 8) + _bufferArray[i + 9]),
                     remoteAddress: BitConverter.ToUInt32(_bufferArray, i + 12),
                     remotePort: (ushort)((_bufferArray[i + 16] << 8) + _bufferArray[i + 17])
-                )
-            );
+                );
+            i += singleSize;
         }
         return records;
     }
@@ -262,38 +313,37 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #region GetProcessTcp6Connections
 
-    public List<Tcp6ProcessRecord> GetProcessTcp6Connections(TcpTableClass tcpTable = TcpTableClass.ProcessAll, bool sortedOrder = false)
+    public Tcp6ProcessRecord[] GetProcessTcp6Connections(TcpTableClass tcpTable = TcpTableClass.ProcessAll, bool sortedOrder = false)
     {
         ThrowIfDisposed();
         if (!(tcpTable is TcpTableClass.ProcessAll or TcpTableClass.ProcessConnections or TcpTableClass.ProcessListeners)) throw new ArgumentException("GetProcessTcp6Connections supports only processes");
 
         int bufferSize = BufferSize;
 
-        lock (_bufferLockObject)
+        lock (_bufferArray)
         {
-            uint errorCode = GetExtendedTcpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, tcpTable);
+            uint errorCode = GetExtendedTcpTable(_bufferPtr, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, tcpTable);
 
-            while (AutoResizeBuffer && (errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER))
+            while ((errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER) && AutoResizeBuffer)
             {
                 SetBufferSize(bufferSize);
-                errorCode = GetExtendedTcpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, tcpTable);
+                errorCode = GetExtendedTcpTable(_bufferPtr, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, tcpTable);
             }
 
             HandleErrorCode(errorCode);
 
-            return CreateTcp6ProcessRecordListFromBuffer(bufferSize);
+            return CreateTcp6ProcessRecordArrayFromBuffer(bufferSize);
         }
     }
 
-    private List<Tcp6ProcessRecord> CreateTcp6ProcessRecordListFromBuffer(int allocatedSize)
+    private Tcp6ProcessRecord[] CreateTcp6ProcessRecordArrayFromBuffer(int allocatedSize)
     {
         int singleSize = 56;
-        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
         int num = (int)BitConverter.ToUInt32(_bufferArray);
-        List<Tcp6ProcessRecord> records = new(num);
-        for (int i = 4; i < (allocatedSize - singleSize); i += singleSize)
+        Tcp6ProcessRecord[] records = new Tcp6ProcessRecord[num];
+        for (int k = 0, i = 4; k < num; k++)
         {
-            records.Add(new
+            records[k] = new
                 (
                     localAddress: _bufferArray[(i + 0)..(i + 16)],
                     localScopeId: BitConverter.ToUInt32(_bufferArray, i + 16),
@@ -303,8 +353,8 @@ public sealed class IpHelpApiWrapper : IDisposable
                     remotePort: (ushort)((_bufferArray[i + 44] << 8) + _bufferArray[i + 45]),
                     state: (ConnectionState)BitConverter.ToUInt32(_bufferArray, i + 48),
                     processId: BitConverter.ToInt32(_bufferArray, i + 52)
-                )
-            );
+                );
+            i += singleSize;
         }
         return records;
     }
@@ -313,38 +363,37 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #region GetModuleTcp6Connections
 
-    public List<Tcp6ModuleRecord> GetModuleTcp6Connections(TcpTableClass tcpTable = TcpTableClass.ModuleAll, bool sortedOrder = false)
+    public Tcp6ModuleRecord[] GetModuleTcp6Connections(TcpTableClass tcpTable = TcpTableClass.ModuleAll, bool sortedOrder = false)
     {
         ThrowIfDisposed();
         if (!(tcpTable is TcpTableClass.ModuleAll or TcpTableClass.ModuleConnections or TcpTableClass.ModuleListeners)) throw new ArgumentException("GetModuleTcp6Connections supports only modules");
 
         int bufferSize = BufferSize;
 
-        lock (_bufferLockObject)
+        lock (_bufferArray)
         {
-            uint errorCode = GetExtendedTcpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, tcpTable);
+            uint errorCode = GetExtendedTcpTable(_bufferPtr, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, tcpTable);
 
-            while (AutoResizeBuffer && (errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER))
+            while ((errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER) && AutoResizeBuffer)
             {
                 SetBufferSize(bufferSize);
-                errorCode = GetExtendedTcpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, tcpTable);
+                errorCode = GetExtendedTcpTable(_bufferPtr, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, tcpTable);
             }
 
             HandleErrorCode(errorCode);
 
-            return CreateTcp6ModuleRecordListFromBuffer(bufferSize);
+            return CreateTcp6ModuleRecordArrayFromBuffer(bufferSize);
         }
     }
 
-    private List<Tcp6ModuleRecord> CreateTcp6ModuleRecordListFromBuffer(int allocatedSize)
+    private Tcp6ModuleRecord[] CreateTcp6ModuleRecordArrayFromBuffer(int allocatedSize)
     {
         int singleSize = 192;
-        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
         int num = (int)BitConverter.ToUInt32(_bufferArray);
-        List<Tcp6ModuleRecord> records = new(num);
-        for (int i = 8; i < (allocatedSize - singleSize); i += singleSize)
+        Tcp6ModuleRecord[] records = new Tcp6ModuleRecord[num];
+        for (int k = 0, i = 8; k < num; k++)
         {
-            records.Add(new
+            records[k] = new
                 (
                     localAddress: _bufferArray[(i + 0)..(i + 16)],
                     localScopeId: BitConverter.ToUInt32(_bufferArray, i + 16),
@@ -356,8 +405,8 @@ public sealed class IpHelpApiWrapper : IDisposable
                     processId: BitConverter.ToInt32(_bufferArray, i + 52),
                     createTimestamp: BitConverter.ToInt64(_bufferArray, i + 56),
                     moduleInfo: MemoryMarshal.Cast<byte, ulong>(_bufferArray.AsSpan(64, 128)).ToArray()
-                )
-            );
+                );
+            i += singleSize;
         }
         return records;
     }
@@ -395,44 +444,43 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #region GetProcessUdp4Connections
 
-    public List<Udp4ProcessRecord> GetProcessUdp4Connections(UdpTableClass udpTable = UdpTableClass.Process, bool sortedOrder = false)
+    public Udp4ProcessRecord[] GetProcessUdp4Connections(UdpTableClass udpTable = UdpTableClass.Process, bool sortedOrder = false)
     {
         ThrowIfDisposed();
         if (udpTable is not UdpTableClass.Process) throw new ArgumentException("GetProcessUdp4Connections supports only processes");
 
         int bufferSize = BufferSize;
 
-        lock (_bufferLockObject)
+        lock (_bufferArray)
         {
-            uint errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, udpTable);
+            uint errorCode = GetExtendedUdpTable(_bufferPtr, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, udpTable);
 
-            while (AutoResizeBuffer && (errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER))
+            while ((errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER) && AutoResizeBuffer)
             {
                 SetBufferSize(bufferSize);
-                errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, udpTable);
+                errorCode = GetExtendedUdpTable(_bufferPtr, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, udpTable);
             }
 
             HandleErrorCode(errorCode);
 
-            return CreateUdp4ProcessRecordListFromBuffer(bufferSize);
+            return CreateUdp4ProcessRecordArrayFromBuffer(bufferSize);
         }
     }
 
-    private List<Udp4ProcessRecord> CreateUdp4ProcessRecordListFromBuffer(int allocatedSize)
+    private Udp4ProcessRecord[] CreateUdp4ProcessRecordArrayFromBuffer(int allocatedSize)
     {
         int singleSize = 12;
-        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
         int num = (int)BitConverter.ToUInt32(_bufferArray);
-        List<Udp4ProcessRecord> records = new(num);
-        for (int i = 4; i < (allocatedSize - singleSize); i += singleSize)
+        Udp4ProcessRecord[] records = new Udp4ProcessRecord[num];
+        for (int k = 0, i = 4; k < num; k++)
         {
-            records.Add(new
+            records[k] = new
                 (
                     localAddress: BitConverter.ToUInt32(_bufferArray, i + 0),
                     localPort: (ushort)((_bufferArray[i + 4] << 8) + _bufferArray[i + 5]),
                     processId: BitConverter.ToInt32(_bufferArray, i + 8)
-                )
-            );
+                );
+            i += singleSize;
         }
         return records;
     }
@@ -441,38 +489,37 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #region GetModuleUdp4Connections
 
-    public List<Udp4ModuleRecord> GetModuleUdp4Connections(UdpTableClass udpTable = UdpTableClass.Module, bool sortedOrder = false)
+    public Udp4ModuleRecord[] GetModuleUdp4Connections(UdpTableClass udpTable = UdpTableClass.Module, bool sortedOrder = false)
     {
         ThrowIfDisposed();
         if (udpTable is not UdpTableClass.Module) throw new ArgumentException("GetModuleUdp4Connections supports only modules");
 
         int bufferSize = BufferSize;
 
-        lock (_bufferLockObject)
+        lock (_bufferArray)
         {
-            uint errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, udpTable);
+            uint errorCode = GetExtendedUdpTable(_bufferPtr, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, udpTable);
 
-            while (AutoResizeBuffer && (errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER))
+            while ((errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER) && AutoResizeBuffer)
             {
                 SetBufferSize(bufferSize);
-                errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, udpTable);
+                errorCode = GetExtendedUdpTable(_bufferPtr, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, udpTable);
             }
 
             HandleErrorCode(errorCode);
 
-            return CreateUdp4ModuleRecordListFromBuffer(bufferSize);
+            return CreateUdp4ModuleRecordArrayFromBuffer(bufferSize);
         }
     }
 
-    private List<Udp4ModuleRecord> CreateUdp4ModuleRecordListFromBuffer(int allocatedSize)
+    private Udp4ModuleRecord[] CreateUdp4ModuleRecordArrayFromBuffer(int allocatedSize)
     {
         int singleSize = 160;
-        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
         int num = (int)BitConverter.ToUInt32(_bufferArray);
-        List<Udp4ModuleRecord> records = new(num);
-        for (int i = 8; i < (allocatedSize - singleSize); i += singleSize)
+        Udp4ModuleRecord[] records = new Udp4ModuleRecord[num];
+        for (int k = 0, i = 8; k < num; k++)
         {
-            records.Add(new
+            records[k] = new
                 (
                     localAddress: BitConverter.ToUInt32(_bufferArray, i + 0),
                     localPort: (ushort)((_bufferArray[i + 4] << 8) + _bufferArray[i + 5]),
@@ -481,8 +528,8 @@ public sealed class IpHelpApiWrapper : IDisposable
                     specificPortBind: _bufferArray[i + 24] == 1,
                     flags: BitConverter.ToInt32(_bufferArray, i + 28),
                     moduleInfo: MemoryMarshal.Cast<byte, ulong>(_bufferArray.AsSpan(32, 128)).ToArray()
-                )
-            );
+                );
+            i += singleSize;
         }
         return records;
     }
@@ -491,43 +538,42 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #region GetBasicUdp4Connections
 
-    public List<Udp4Record> GetBasicUdp4Connections(UdpTableClass udpTable = UdpTableClass.Basic, bool sortedOrder = false)
+    public Udp4Record[] GetBasicUdp4Connections(UdpTableClass udpTable = UdpTableClass.Basic, bool sortedOrder = false)
     {
         ThrowIfDisposed();
         if (udpTable is not UdpTableClass.Basic) throw new ArgumentException("GetBasicUdp4Connections supports only basic");
 
         int bufferSize = BufferSize;
 
-        lock (_bufferLockObject)
+        lock (_bufferArray)
         {
-            uint errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, udpTable);
+            uint errorCode = GetExtendedUdpTable(_bufferPtr, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, udpTable);
 
-            while (AutoResizeBuffer && (errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER))
+            while ((errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER) && AutoResizeBuffer)
             {
                 SetBufferSize(bufferSize);
-                errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, udpTable);
+                errorCode = GetExtendedUdpTable(_bufferPtr, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetwork, udpTable);
             }
 
             HandleErrorCode(errorCode);
 
-            return CreateUdp4BasicRecordListFromBuffer(bufferSize);
+            return CreateUdp4BasicRecordArrayFromBuffer(bufferSize);
         }
     }
 
-    private List<Udp4Record> CreateUdp4BasicRecordListFromBuffer(int allocatedSize)
+    private Udp4Record[] CreateUdp4BasicRecordArrayFromBuffer(int allocatedSize)
     {
         int singleSize = 8;
-        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
         int num = (int)BitConverter.ToUInt32(_bufferArray);
-        List<Udp4Record> records = new(num);
-        for (int i = 4; i < (allocatedSize - singleSize); i += singleSize)
+        Udp4Record[] records = new Udp4Record[num];
+        for (int k = 0, i = 4; k < num; k++)
         {
-            records.Add(new
+            records[k] = new
                 (
                     localAddress: BitConverter.ToUInt32(_bufferArray, i + 0),
                     localPort: (ushort)((_bufferArray[i + 4] << 8) + _bufferArray[i + 5])
-                )
-            );
+                );
+            i += singleSize;
         }
         return records;
     }
@@ -551,45 +597,44 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #region GetProcessUdp6Connections
 
-    public List<Udp6ProcessRecord> GetProcessUdp6Connections(UdpTableClass udpTable = UdpTableClass.Process, bool sortedOrder = false)
+    public Udp6ProcessRecord[] GetProcessUdp6Connections(UdpTableClass udpTable = UdpTableClass.Process, bool sortedOrder = false)
     {
         ThrowIfDisposed();
         if (udpTable is not UdpTableClass.Process) throw new ArgumentException("GetProcessUdp6Connections supports only processes");
 
         int bufferSize = BufferSize;
 
-        lock (_bufferLockObject)
+        lock (_bufferArray)
         {
-            uint errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, udpTable);
+            uint errorCode = GetExtendedUdpTable(_bufferPtr, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, udpTable);
 
-            while (AutoResizeBuffer && (errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER))
+            while ((errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER) && AutoResizeBuffer)
             {
                 SetBufferSize(bufferSize);
-                errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, udpTable);
+                errorCode = GetExtendedUdpTable(_bufferPtr, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, udpTable);
             }
 
             HandleErrorCode(errorCode);
 
-            return CreateUdp6ProcessRecordListFromBuffer(bufferSize);
+            return CreateUdp6ProcessRecordArrayFromBuffer(bufferSize);
         }
     }
 
-    private List<Udp6ProcessRecord> CreateUdp6ProcessRecordListFromBuffer(int allocatedSize)
+    private Udp6ProcessRecord[] CreateUdp6ProcessRecordArrayFromBuffer(int allocatedSize)
     {
         int singleSize = 28;
-        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
         int num = (int)BitConverter.ToUInt32(_bufferArray);
-        List<Udp6ProcessRecord> records = new(num);
-        for (int i = 4; i < (allocatedSize - singleSize); i += singleSize)
+        Udp6ProcessRecord[] records = new Udp6ProcessRecord[num];
+        for (int k = 0, i = 4; k < num; k++)
         {
-            records.Add(new
+            records[k] = new
                 (
                     localAddress: _bufferArray[(i + 0)..(i + 16)],
                     localScopeId: BitConverter.ToUInt32(_bufferArray, i + 16),
                     localPort: (ushort)((_bufferArray[i + 20] << 8) + _bufferArray[i + 21]),
                     processId: BitConverter.ToInt32(_bufferArray, i + 24)
-                )
-            );
+                );
+            i += singleSize;
         }
         return records;
     }
@@ -598,38 +643,37 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #region GetModuleUdp6Connections
 
-    public List<Udp6ModuleRecord> GetModuleUdp6Connections(UdpTableClass udpTable = UdpTableClass.Module, bool sortedOrder = false)
+    public Udp6ModuleRecord[] GetModuleUdp6Connections(UdpTableClass udpTable = UdpTableClass.Module, bool sortedOrder = false)
     {
         ThrowIfDisposed();
         if (udpTable is not UdpTableClass.Module) throw new ArgumentException("GetModuleUdp6Connections supports only modules");
 
         int bufferSize = BufferSize;
 
-        lock (_bufferLockObject)
+        lock (_bufferArray)
         {
-            uint errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, udpTable);
+            uint errorCode = GetExtendedUdpTable(_bufferPtr, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, udpTable);
 
-            while (AutoResizeBuffer && (errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER))
+            while ((errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER) && AutoResizeBuffer)
             {
                 SetBufferSize(bufferSize);
-                errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, udpTable);
+                errorCode = GetExtendedUdpTable(_bufferPtr, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, udpTable);
             }
 
             HandleErrorCode(errorCode);
 
-            return CreateUdp6ModuleRecordListFromBuffer(bufferSize);
+            return CreateUdp6ModuleRecordArrayFromBuffer(bufferSize);
         }
     }
 
-    private List<Udp6ModuleRecord> CreateUdp6ModuleRecordListFromBuffer(int allocatedSize)
+    private Udp6ModuleRecord[] CreateUdp6ModuleRecordArrayFromBuffer(int allocatedSize)
     {
         int singleSize = 176;
-        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
         int num = (int)BitConverter.ToUInt32(_bufferArray);
-        List<Udp6ModuleRecord> records = new(num);
-        for (int i = 8; i < (allocatedSize - singleSize); i += singleSize)
+        Udp6ModuleRecord[] records = new Udp6ModuleRecord[num];
+        for (int k = 0, i = 8; k < num; k++)
         {
-            records.Add(new
+            records[k] = new
                 (
                     localAddress: _bufferArray[(i + 0)..(i + 16)],
                     localScopeId: BitConverter.ToUInt32(_bufferArray, i + 16),
@@ -639,8 +683,8 @@ public sealed class IpHelpApiWrapper : IDisposable
                     specificPortBind: _bufferArray[i + 40] == 1,
                     flags: BitConverter.ToInt32(_bufferArray, i + 44),
                     moduleInfo: MemoryMarshal.Cast<byte, ulong>(_bufferArray.AsSpan(48, 128)).ToArray()
-                )
-            );
+                );
+            i += singleSize;
         }
         return records;
     }
@@ -649,44 +693,43 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #region GetBasicUdp6Connections
 
-    public List<Udp6Record> GetBasicUdp6Connections(UdpTableClass udpTable = UdpTableClass.Basic, bool sortedOrder = false)
+    public Udp6Record[] GetBasicUdp6Connections(UdpTableClass udpTable = UdpTableClass.Basic, bool sortedOrder = false)
     {
         ThrowIfDisposed();
         if (udpTable is not UdpTableClass.Basic) throw new ArgumentException("GetBasicUdp6Connections supports only basic");
 
         int bufferSize = BufferSize;
 
-        lock (_bufferLockObject)
+        lock (_bufferArray)
         {
-            uint errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, udpTable);
+            uint errorCode = GetExtendedUdpTable(_bufferPtr, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, udpTable);
 
-            while (AutoResizeBuffer && (errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER))
+            while ((errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER) && AutoResizeBuffer)
             {
                 SetBufferSize(bufferSize);
-                errorCode = GetExtendedUdpTable(_buffer, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, udpTable);
+                errorCode = GetExtendedUdpTable(_bufferPtr, ref bufferSize, sortedOrder, (int)AddressFamily.InterNetworkV6, udpTable);
             }
 
             HandleErrorCode(errorCode);
 
-            return CreateUdp6BasicRecordListFromBuffer(bufferSize);
+            return CreateUdp6BasicRecordArrayFromBuffer(bufferSize);
         }
     }
 
-    private List<Udp6Record> CreateUdp6BasicRecordListFromBuffer(int allocatedSize)
+    private Udp6Record[] CreateUdp6BasicRecordArrayFromBuffer(int allocatedSize)
     {
         int singleSize = 24;
-        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
         int num = (int)BitConverter.ToUInt32(_bufferArray);
-        List<Udp6Record> records = new(num);
-        for (int i = 4; i < (allocatedSize - singleSize); i += singleSize)
+        Udp6Record[] records = new Udp6Record[num];
+        for (int k = 0, i = 4; k < num; k++)
         {
-            records.Add(new
+            records[k] = new
                 (
                     localAddress: _bufferArray[(i + 0)..(i + 16)],
                     localScopeId: BitConverter.ToUInt32(_bufferArray, i + 16),
                     localPort: (ushort)((_bufferArray[i + 20] << 8) + _bufferArray[i + 21])
-                )
-            );
+                );
+            i += singleSize;
         }
         return records;
     }
@@ -699,68 +742,201 @@ public sealed class IpHelpApiWrapper : IDisposable
 
     #region GetIpNetTableRecords()
 
-    public List<PhysicalAddressRecord> GetIpNetTableRecords(bool sortedOrder = false)
+    public PhysicalAddressRecord[] GetIpNetTableRecords(bool sortedOrder = false)
     {
         ThrowIfDisposed();
 
         int bufferSize = BufferSize;
 
-        lock (_bufferLockObject)
+        lock (_bufferArray)
         {
-            int errorCode = GetIpNetTable(_buffer, ref bufferSize, sortedOrder);
+            uint errorCode = GetIpNetTable(_bufferPtr, ref bufferSize, sortedOrder);
 
-            while (AutoResizeBuffer && (errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER))
+            while ((errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER) && AutoResizeBuffer)
             {
                 SetBufferSize(bufferSize);
-                errorCode = GetIpNetTable(_buffer, ref bufferSize, sortedOrder);
+                errorCode = GetIpNetTable(_bufferPtr, ref bufferSize, sortedOrder);
             }
 
-            HandleErrorCode((uint)errorCode);
-            if (errorCode == (int)ErrorReturnCodes.ERROR_NO_DATA) return new();
+            HandleErrorCode(errorCode);
+            if (errorCode == (uint)ErrorReturnCodes.ERROR_NO_DATA) return Array.Empty<PhysicalAddressRecord>();
 
-            return CreatePhysicalAddressRecordListFromBuffer(bufferSize);
+            return CreatePhysicalAddressRecordArrayFromBuffer(bufferSize);
         }
     }
 
-    private List<PhysicalAddressRecord> CreatePhysicalAddressRecordListFromBuffer(int allocatedSize)
+    private PhysicalAddressRecord[] CreatePhysicalAddressRecordArrayFromBuffer(int allocatedSize)
     {
         int singleSize = 24;
-        Marshal.Copy(_buffer, _bufferArray, 0, allocatedSize);
         int num = (int)BitConverter.ToUInt32(_bufferArray);
-        List<PhysicalAddressRecord> records = new(num);
-        allocatedSize = 4 + (singleSize * num);
-        for (int i = 4; i < allocatedSize; i += singleSize)
+        PhysicalAddressRecord[] records = new PhysicalAddressRecord[num];
+        for (int k = 0, i = 4; k < num; k++)
         {
-            records.Add(new
+            records[k] = new
                 (
                     physicalAddress: _bufferArray[(i + 8)..(i + 14)],
                     ipAddress: BitConverter.ToUInt32(_bufferArray, i + 16),
                     netType: (IpNetType)BitConverter.ToUInt32(_bufferArray, i + 20)
-                )
-            );
+                );
+            i += singleSize;
         }
         return records;
     }
 
     #endregion
 
+    #region GetBestInterfaceIndex()
+
+    public static uint GetBestInterfaceIndex(uint address)
+    {
+        uint index = 0;
+        uint errorCode = GetBestInterface(address, ref index);
+        HandleErrorCode(errorCode);
+        return index;
+    }
+
+    public static uint GetBestInterfaceIndex(IPAddress address)
+    {
+        return GetBestInterfaceIndex(GetIPV4AddressUint(address));
+    }
+
+    #endregion
+
+    #region GetBestInterface4()
+
+    public static NetworkInterface GetBestInterface4(IPAddress address, NetworkInterface[]? interfaces = null)
+    {
+        // Use GetBestInterfaceIndex instead of GetBestInterfaceEx because it's faster (BARELY!) and doesnt allocate memory on the heap
+        uint bestIndex = GetBestInterfaceIndex(address);
+        interfaces ??= NetworkInterface.GetAllNetworkInterfaces();
+        foreach (NetworkInterface netInterface in interfaces)
+        {
+            if (netInterface.GetIPProperties().GetIPv4Properties().Index == bestIndex) return netInterface;
+        }
+        throw new InvalidOperationException("Unable to find the best interface");
+    }
+
+    #endregion
+
+    #region GetBestInterfaceIndexEx()
+
+    public static uint GetBestInterfaceIndexEx(IPAddress address)
+    {
+        byte[] socksaddr_in6 = new byte[26];
+        Span<byte> byteSpan = new(socksaddr_in6);
+
+        socksaddr_in6[0] = (byte)(((short)address.AddressFamily) & 255);
+        socksaddr_in6[1] = (byte)(((short)address.AddressFamily) >> 8);
+
+        if (!address.TryWriteBytes(byteSpan[2..], out int _)) throw new InvalidDataException("Unable to get ip address bytes");
+
+        GCHandle handle = GCHandle.Alloc(socksaddr_in6, GCHandleType.Pinned);
+        IntPtr ptr = handle.AddrOfPinnedObject();
+
+        uint index = 0;
+        uint errorCode = GetBestInterfaceEx(ptr, ref index);
+        handle.Free();
+        HandleErrorCode(errorCode);
+        return index;
+    }
+
+    #endregion
+
+    #region GetBestInterface6()
+
+    public static NetworkInterface GetBestInterface6(IPAddress address, NetworkInterface[]? interfaces = null)
+    {
+        uint bestIndex = GetBestInterfaceIndexEx(address);
+        interfaces ??= NetworkInterface.GetAllNetworkInterfaces();
+        foreach (NetworkInterface netInterface in interfaces)
+        {
+            if (netInterface.GetIPProperties().GetIPv6Properties().Index == bestIndex) return netInterface;
+        }
+        throw new InvalidOperationException("Unable to find the best interface");
+    }
+
+    #endregion
+
+    #region GetBestInterface()
+
+    public static NetworkInterface GetBestInterface(IPAddress address, NetworkInterface[]? interfaces = null)
+    {
+        return address.AddressFamily switch
+        {
+            AddressFamily.InterNetwork => GetBestInterface4(address, interfaces),
+            AddressFamily.InterNetworkV6 => GetBestInterface6(address, interfaces),
+            _ => throw new ArgumentException("AddressFamily should be InterNetwork or InterNetworkV6"),
+        };
+    }
+
+    #endregion
+
+    #region SendARP()
+
+    public static byte[] SendARP(uint destionationAddress, uint sourceAddress = 0)
+    {
+        byte[] physicalAddress = new byte[6];
+        int addressLength = physicalAddress.Length;
+        uint errorCode = SendARP(destionationAddress, sourceAddress, physicalAddress, ref addressLength);
+        while (errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER) // Should we resize tho?
+        {
+            Array.Resize(ref physicalAddress, addressLength);
+            errorCode = SendARP(destionationAddress, sourceAddress, physicalAddress, ref addressLength);
+        }
+        HandleErrorCode(errorCode);
+        return physicalAddress;
+    }
+
+    /// <summary>
+    /// Send Address Resolution Protocol (ARP) packet to resolve the physical address of the device with the desired ipv4 address in the local network.
+    /// If the ARP entry exists in the ARP table on the local device, returns the target address, otherwise sends resolution packet
+    /// </summary>
+    /// <param name="destAddress">Ip address to be resolved</param>
+    /// <param name="srcAddress">Network interface ip address, if set to null, would automatically resolve from the main interface</param>
+    /// <returns>Resolved physical address</returns>
+    public static PhysicalAddress SendARP(IPAddress destAddress, IPAddress? srcAddress = null)
+    {
+        return new PhysicalAddress(SendARP(GetIPV4AddressUint(destAddress), srcAddress == null ? 0 : GetIPV4AddressUint(srcAddress)));
+    }
+
+    #endregion
+
+    /// <summary>
+    /// Returns ipv4 address in uint format
+    /// </summary>
+    /// <param name="ipAddr">Address to convert</param>
+    /// <returns>Address in uint format</returns>
+    /// <exception cref="InvalidOperationException">Provided ip address is not ipv4</exception>
+    /// <exception cref="InvalidDataException">Unable to write ip address bytes</exception>
+    public static uint GetIPV4AddressUint(IPAddress ipAddr)
+    {
+        if (ipAddr.AddressFamily is not AddressFamily.InterNetwork) throw new InvalidOperationException("GetIPV4Adress supports only ipv4 addresses");
+        Span<byte> addrBytes = stackalloc byte[4];
+        if (!ipAddr.TryWriteBytes(addrBytes, out int _)) throw new InvalidDataException("Unable to get ip address bytes");
+        return ((uint)addrBytes[3] << 24) + ((uint)addrBytes[2] << 16) + ((uint)addrBytes[1] << 8) + addrBytes[0];
+    }
+
     private static void HandleErrorCode(uint errorCode)
     {
-        if (errorCode == (int)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER) throw new OutOfMemoryException("Buffer is too small");
-        if (errorCode != (int)ErrorReturnCodes.NO_ERROR && (errorCode != (int)ErrorReturnCodes.ERROR_NO_DATA)) throw new Win32Exception((int)errorCode);
+        if (errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER) throw new OutOfMemoryException("Buffer is too small");
+        if ((errorCode != (uint)ErrorReturnCodes.NO_ERROR) && (errorCode != (int)ErrorReturnCodes.ERROR_NO_DATA)) throw new Win32Exception((int)errorCode);
     }
 
     private void ThrowIfDisposed()
     {
-        if (_disposed) throw new ObjectDisposedException(GetType().FullName);
+        if (Disposed) throw new ObjectDisposedException(GetType().FullName);
     }
 
     public void Dispose()
     {
-        if (_disposed) return;
-        Marshal.FreeHGlobal(_buffer);
+        ThrowIfDisposed();
+        _bufferGCHandle.Free();
+        if (UsedArrayPool != null)
+        {
+            UsedArrayPool.Return(_bufferArray);
+        }
         GC.SuppressFinalize(this);
-        _disposed = true;
+        Disposed = true;
     }
 }
 
@@ -809,7 +985,7 @@ public enum ConnectionState
     NONE = 0
 }
 
-public enum ErrorReturnCodes
+public enum ErrorReturnCodes : uint
 {
     NO_ERROR = 0,
     ERROR_INSUFFICIENT_BUFFER = 122,
@@ -889,9 +1065,9 @@ public class Tcp4Record : ITcpRecord
         }
     }
 
-    public readonly MibState State;
+    public readonly ConnectionState State;
 
-    public Tcp4Record(MibState state, uint localAddress, ushort localPort, uint remoteAddress, ushort remotePort)
+    public Tcp4Record(ConnectionState state, uint localAddress, ushort localPort, uint remoteAddress, ushort remotePort)
     {
         LocalAddress = localAddress;
         LocalPort = localPort;
@@ -906,14 +1082,14 @@ public class Tcp4ProcessRecord : Tcp4Record
 
     public readonly int ProcessId;
 
-    public Tcp4ProcessRecord(MibState state, uint localAddress, ushort localPort, uint remoteAddress, ushort remotePort, int processId)
+    public Tcp4ProcessRecord(ConnectionState state, uint localAddress, ushort localPort, uint remoteAddress, ushort remotePort, int processId)
         : base(state, localAddress, localPort, remoteAddress, remotePort)
     {
         ProcessId = processId;
     }
 }
 
-public class Tcp4ModuleRecord : Tcp4ProcessRecord
+public sealed class Tcp4ModuleRecord : Tcp4ProcessRecord
 {
 
     public readonly long CreateTimestamp;
@@ -931,7 +1107,7 @@ public class Tcp4ModuleRecord : Tcp4ProcessRecord
 
     public readonly ulong[] ModuleInfo;
 
-    public Tcp4ModuleRecord(MibState state, uint localAddress, ushort localPort, uint remoteAddress, ushort remotePort, int processId, long createTimestamp, ulong[] moduleInfo)
+    public Tcp4ModuleRecord(ConnectionState state, uint localAddress, ushort localPort, uint remoteAddress, ushort remotePort, int processId, long createTimestamp, ulong[] moduleInfo)
         : base(state, localAddress, localPort, remoteAddress, remotePort, processId)
     {
         CreateTimestamp = createTimestamp;
@@ -1002,9 +1178,9 @@ public class Tcp6Record : ITcpRecord
         }
     }
 
-    public readonly MibState State;
+    public readonly ConnectionState State;
 
-    public Tcp6Record(byte[] localAddress, uint localScopeId, ushort localPort, byte[] remoteAddress, uint remoteScopeId, ushort remotePort, MibState state)
+    public Tcp6Record(byte[] localAddress, uint localScopeId, ushort localPort, byte[] remoteAddress, uint remoteScopeId, ushort remotePort, ConnectionState state)
     {
         LocalAddress = localAddress;
         LocalScopeId = localScopeId;
@@ -1021,7 +1197,7 @@ public class Tcp6ProcessRecord : Tcp6Record
 
     public readonly int ProcessId;
 
-    public Tcp6ProcessRecord(byte[] localAddress, uint localScopeId, ushort localPort, byte[] remoteAddress, uint remoteScopeId, ushort remotePort, MibState state, int processId)
+    public Tcp6ProcessRecord(byte[] localAddress, uint localScopeId, ushort localPort, byte[] remoteAddress, uint remoteScopeId, ushort remotePort, ConnectionState state, int processId)
         : base(localAddress, localScopeId, localPort, remoteAddress, remoteScopeId, remotePort, state)
     {
         ProcessId = processId;
@@ -1029,7 +1205,7 @@ public class Tcp6ProcessRecord : Tcp6Record
 
 }
 
-public class Tcp6ModuleRecord : Tcp6ProcessRecord
+public sealed class Tcp6ModuleRecord : Tcp6ProcessRecord
 {
 
     public readonly long CreateTimestamp;
@@ -1047,7 +1223,7 @@ public class Tcp6ModuleRecord : Tcp6ProcessRecord
 
     public readonly ulong[] ModuleInfo;
 
-    public Tcp6ModuleRecord(byte[] localAddress, uint localScopeId, ushort localPort, byte[] remoteAddress, uint remoteScopeId, ushort remotePort, MibState state, int processId, long createTimestamp, ulong[] moduleInfo)
+    public Tcp6ModuleRecord(byte[] localAddress, uint localScopeId, ushort localPort, byte[] remoteAddress, uint remoteScopeId, ushort remotePort, ConnectionState state, int processId, long createTimestamp, ulong[] moduleInfo)
         : base(localAddress, localScopeId, localPort, remoteAddress, remoteScopeId, remotePort, state, processId)
     {
         CreateTimestamp = createTimestamp;
@@ -1120,7 +1296,7 @@ public class Udp4ProcessRecord : Udp4Record
     }
 }
 
-public class Udp4ModuleRecord : Udp4ProcessRecord
+public sealed class Udp4ModuleRecord : Udp4ProcessRecord
 {
 
     public readonly long CreateTimestamp;
@@ -1208,7 +1384,7 @@ public class Udp6ProcessRecord : Udp6Record
     }
 }
 
-public class Udp6ModuleRecord : Udp6ProcessRecord
+public sealed class Udp6ModuleRecord : Udp6ProcessRecord
 {
 
     public readonly long CreateTimestamp;
@@ -1244,7 +1420,7 @@ public class Udp6ModuleRecord : Udp6ProcessRecord
 
 #endregion
 
-public class PhysicalAddressRecord
+public sealed class PhysicalAddressRecord
 {
 
     public readonly uint IpAddressInt;
