@@ -881,6 +881,7 @@ public sealed class IpHelpApiWrapper : IDisposable
         while (errorCode == (uint)ErrorReturnCodes.ERROR_INSUFFICIENT_BUFFER) // Should we resize tho?
         {
             Array.Resize(ref physicalAddress, addressLength);
+            // Do not resize addressLength!!! This gets overriden when we call SendARP native
             errorCode = SendARP(destionationAddress, sourceAddress, physicalAddress, ref addressLength);
         }
         HandleErrorCode(errorCode);
