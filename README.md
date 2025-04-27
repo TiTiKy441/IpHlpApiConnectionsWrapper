@@ -1,5 +1,8 @@
 # IpHlpApiConnectionsWrapper
-This is a performance focused C# wrapper for iphlpapi.dll. Works on .NET 6.0
+This is a performance focused C# wrapper for iphlpapi.dll.
+
+Works on .NET6 
+This could be done more efficient in newer vesrions but I want to keep it compatible even with old versions of the language.
 
 It was made for the purpose of retrieving all TCP/UDP connections of any type (process/module/basic, ipv6/ipv4) as fast as possible. Speed is a key goal.
 
