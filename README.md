@@ -150,10 +150,10 @@ public static NetworkInterface GetMainNetworkInterface()
     return IpHelpApiWrapper.GetBestInterface4(IPAddress.Any);
 }
 
-//
+//Retrieves gateway's address
 public static PhysicalAddress GetGatewayPhysicalAddress()
 {
-    IPAddress targetAddress = IpHelpApiWrapper.GetBestInterface4(IPAddress.Any).GetIPProperties().GatewayAddresses.Last().Address;.;
+    IPAddress targetAddress = IpHelpApiWrapper.GetBestInterface4(IPAddress.Any).GetIPProperties().GatewayAddresses.Last().Address;
     PhysicalAddressRecord[] records = IpHelpApiWrapper.Shared.GetIpNetTableRecords(); // List of ip addresses and their physical addresses
     PhysicalAddress? found = Array.Find(records, x => x.IpAddress.Equals(targetAddress) && (x.NetType != IpNetType.Invalid))?.PhysicalAddress;
     if (found == null) throw new AggregateException("Gateway address was not found in the table");
