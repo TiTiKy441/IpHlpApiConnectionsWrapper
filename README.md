@@ -3,9 +3,13 @@ This is a performance focused C# wrapper for iphlpapi.dll.
 
 Works on .NET6
 
-This could be done more efficient in newer vesrions but I want to keep it compatible even with old versions of the language.
+This could be done more efficiently in newer vesrions but I want to keep it compatible even with old versions of the language.
 
 It was made for the purpose of retrieving all TCP/UDP connections of any type (process/module/basic, ipv6/ipv4) as fast as possible. Speed is a key goal.
+
+There are two main types of functions: instance functions and static function. If the function involves an external call, it would most certainly need to allocate some memory. Instance functions use an already created buffer for this purpose. Static functions use stack allocated memory.
+
+Stack allocated memory is generally faster on windows, so static functions are preferred over instance functions, but in some cases they behave faster only under specific conditions, static functions which are not recommended to use are hidden, using non-hidden static functions is fine. 
 
 Available functions and methods:
 1. `SetBufferSize(int newSize)`
@@ -69,8 +73,11 @@ Available functions and methods:
 19. `GetBasicUdp6Connections(UdpTableClass udpTable = UdpTableClass.Basic, bool sortedOrder = false)`
 
     Retrieves information about all udp ipv6 basic connections
+20. `GetIpAddrTableRecords(bool sortedOrder = false)`
 
-Available static functions:
+    Retrieves information about network interfaces and their corresponding ipv4 addresses.
+
+Available static functions (not recommended functions are not listed):
 
 1. `uint GetBestInterfaceIndex(uint address)` / `GetBestInterfaceIndex(IPAddress address)`
 
@@ -99,6 +106,7 @@ Available static functions:
 7. `PhysicalAddress SendARP(IPAddress destAddress, IPAddress? srcAddress = null)`
 
    Resolves PhysicalAddress by sending ARP request to the target or by getting the PhysicalAddress from the ARP entries list
+
 
 ## Examples
 
@@ -158,9 +166,25 @@ public static PhysicalAddress GetGatewayPhysicalAddress()
     PhysicalAddress? found = Array.Find(records, x => x.IpAddress.Equals(targetAddress) && (x.NetType != IpNetType.Invalid))?.PhysicalAddress;
     if (found == null) throw new AggregateException("Gateway address was not found in the table");
     return found;
+}
 ```
 
 ## Performance recomendations
 If you want to get some fixed type of record, you should get it directly (for example `GetProcessTcp4Connections()`, `GetModuleUdp6Connections()`) instead of `GetTcpTable` or `GetUdpTable`
 
 Using `LocalIPAddress` or `LocalEndPoint` property of any record type internally converts `LocalAddress`, `LocalPort`, `LocalScopeId` into an `IPAddress` or `IpEndPoint`. This takes some computing power. If you are developing a high performance application which is, for example, have to compare IP address to the processes IP addresses in bulk, you should consider converting the IP address into `uint` and only then compare it with the processes IP addresses. Same applies to `RemoteAddress` and `RemoteEndPoint`
+
+## Internal structure
+On wrapper creation, it either allocates a new byte array or borrows it from the array pool, if the array pool is specified in the constructor. After that this byte array is pinned and a pointer to it is stored. When the external call is made, this pointer is passed into the external call and this array is used for an external call. During this call, no other function should access the byte array, so it is locked. If the byte array was too small, class either throws an exception (if `AutoResizeBuffer` is set to false) or unpins and unhooks the old array and either reallocates or reborrows the new array.
+
+Results of external calls are manually marshalled into classes, SpanByteConverter is an internal class for managing byte conversions.
+
+External call's return codes are handled by the `HandleErrorCode` method.
+
+### Static functions disclaimer
+
+Static functions use stack allocated memory. It's impossible to store this memory between calls since this memory gets discarded per function call. Stack allocated memory on windows is generally faster in allocation, reading and writing, so it's use should be preffered over the heap memory allocation. However, since we cant store this memory, we need to reallocate it on every call, which creates the problem that on bigger sizes (Should be above 2 kb I believe), the allocation time becomes too big and it's no longer faster than the heap-using functions. Also stack memory allocation is tricky so I decided to not implement auto-resize so they would throw an exception if the allocated memory is not big enough.
+
+Above said only applies to BROWSER-HIDDEN functions, non browser-hidden functions are safe and fast to use.
+
+Static function use internal (only for compiled use) function `GetPinnableReference()`, so if the dotnet removes it, it would be impossible to implmenet stack allocation.
