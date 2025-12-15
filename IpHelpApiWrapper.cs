@@ -26,7 +26,7 @@ public sealed class IpHelpApiWrapper : IDisposable
      **/
 
     /**
-     * Consider the following before using static functions from this class:
+     * Consider the following before using BROWSER-HIDDEN static functions from this class:
      * 
      * Static functions use stack allocated memory instead of heap allocated memory that is used by instance functions
      * Static functions from this class sometimes are faster than their instance functions, but this comes at a cost
@@ -253,12 +253,12 @@ public sealed class IpHelpApiWrapper : IDisposable
         {
             records[k] = new
                 (
-                    state: (ConnectionState)SpanBitConverter.ToUInt32(buffer, i + 0),
-                    localAddress: SpanBitConverter.ToUInt32(buffer, i + 4),
+                    state: (ConnectionState)SpanByteConverter.ToUInt32(buffer, i + 0),
+                    localAddress: SpanByteConverter.ToUInt32(buffer, i + 4),
                     localPort: (ushort)((buffer[i + 8] << 8) + buffer[i + 9]),
-                    remoteAddress: SpanBitConverter.ToUInt32(buffer, i + 12),
+                    remoteAddress: SpanByteConverter.ToUInt32(buffer, i + 12),
                     remotePort: (ushort)((buffer[i + 16] << 8) + buffer[i + 17]),
-                    processId: SpanBitConverter.ToInt32(buffer, i + 20)
+                    processId: SpanByteConverter.ToInt32(buffer, i + 20)
                 );
         }
         return records;
@@ -308,13 +308,13 @@ public sealed class IpHelpApiWrapper : IDisposable
         {
             records[k] = new
                 (
-                    state: (ConnectionState)SpanBitConverter.ToUInt32(buffer, i + 0),
-                    localAddress: SpanBitConverter.ToUInt32(buffer, i + 4),
+                    state: (ConnectionState)SpanByteConverter.ToUInt32(buffer, i + 0),
+                    localAddress: SpanByteConverter.ToUInt32(buffer, i + 4),
                     localPort: (ushort)((buffer[i + 8] << 8) + buffer[i + 9]),
-                    remoteAddress: SpanBitConverter.ToUInt32(buffer, i + 12),
+                    remoteAddress: SpanByteConverter.ToUInt32(buffer, i + 12),
                     remotePort: (ushort)((buffer[i + 16] << 8) + buffer[i + 17]),
-                    processId: SpanBitConverter.ToInt32(buffer, i + 20),
-                    createTimestamp: SpanBitConverter.ToInt64(buffer, i + 24),
+                    processId: SpanByteConverter.ToInt32(buffer, i + 20),
+                    createTimestamp: SpanByteConverter.ToInt64(buffer, i + 24),
                     moduleInfo: loadModuleInfo ? MemoryMarshal.Cast<byte, ulong>(buffer.Slice(32, 128)).ToArray() : Array.Empty<ulong>()
                 );
         }
@@ -361,10 +361,10 @@ public sealed class IpHelpApiWrapper : IDisposable
         {
             records[k] = new
                 (
-                    state: (ConnectionState)SpanBitConverter.ToUInt32(buffer, i + 0),
-                    localAddress: SpanBitConverter.ToUInt32(buffer, i + 4),
+                    state: (ConnectionState)SpanByteConverter.ToUInt32(buffer, i + 0),
+                    localAddress: SpanByteConverter.ToUInt32(buffer, i + 4),
                     localPort: (ushort)((buffer[i + 8] << 8) + buffer[i + 9]),
-                    remoteAddress: SpanBitConverter.ToUInt32(buffer, i + 12),
+                    remoteAddress: SpanByteConverter.ToUInt32(buffer, i + 12),
                     remotePort: (ushort)((buffer[i + 16] << 8) + buffer[i + 17])
                 );
         }
@@ -426,13 +426,13 @@ public sealed class IpHelpApiWrapper : IDisposable
             records[k] = new
                 (
                     localAddress: buffer[(i + 0)..(i + 16)].ToArray(),
-                    localScopeId: SpanBitConverter.ToUInt32(buffer, i + 16),
+                    localScopeId: SpanByteConverter.ToUInt32(buffer, i + 16),
                     localPort: (ushort)((buffer[i + 20] << 8) + buffer[i + 21]),
                     remoteAddress: buffer[(i + 24)..(i + 40)].ToArray(),
-                    remoteScopeId: SpanBitConverter.ToUInt32(buffer, i + 40),
+                    remoteScopeId: SpanByteConverter.ToUInt32(buffer, i + 40),
                     remotePort: (ushort)((buffer[i + 44] << 8) + buffer[i + 45]),
-                    state: (ConnectionState)SpanBitConverter.ToUInt32(buffer, i + 48),
-                    processId: SpanBitConverter.ToInt32(buffer, i + 52)
+                    state: (ConnectionState)SpanByteConverter.ToUInt32(buffer, i + 48),
+                    processId: SpanByteConverter.ToInt32(buffer, i + 52)
                 );
         }
         return records;
@@ -478,14 +478,14 @@ public sealed class IpHelpApiWrapper : IDisposable
             records[k] = new
                 (
                     localAddress: buffer[(i + 0)..(i + 16)].ToArray(),
-                    localScopeId: SpanBitConverter.ToUInt32(buffer, i + 16),
+                    localScopeId: SpanByteConverter.ToUInt32(buffer, i + 16),
                     localPort: (ushort)((buffer[i + 20] << 8) + buffer[i + 21]),
                     remoteAddress: buffer[(i + 24)..(i + 40)].ToArray(),
-                    remoteScopeId: SpanBitConverter.ToUInt32(buffer, i + 40),
+                    remoteScopeId: SpanByteConverter.ToUInt32(buffer, i + 40),
                     remotePort: (ushort)((buffer[i + 44] << 8) + buffer[i + 45]),
-                    state: (ConnectionState)SpanBitConverter.ToUInt32(buffer, i + 48),
-                    processId: SpanBitConverter.ToInt32(buffer, i + 52),
-                    createTimestamp: SpanBitConverter.ToInt64(buffer, i + 56),
+                    state: (ConnectionState)SpanByteConverter.ToUInt32(buffer, i + 48),
+                    processId: SpanByteConverter.ToInt32(buffer, i + 52),
+                    createTimestamp: SpanByteConverter.ToInt64(buffer, i + 56),
                     moduleInfo: loadModuleInfo ? MemoryMarshal.Cast<byte, ulong>(buffer.Slice(64, 128)).ToArray() : Array.Empty<ulong>()
                 );
         }
@@ -569,9 +569,9 @@ public sealed class IpHelpApiWrapper : IDisposable
         {
             records[k] = new
                 (
-                    localAddress: SpanBitConverter.ToUInt32(buffer, i + 0),
+                    localAddress: SpanByteConverter.ToUInt32(buffer, i + 0),
                     localPort: (ushort)((buffer[i + 4] << 8) + buffer[i + 5]),
-                    processId: SpanBitConverter.ToInt32(buffer, i + 8)
+                    processId: SpanByteConverter.ToInt32(buffer, i + 8)
                 );
         }
         return records;
@@ -616,12 +616,12 @@ public sealed class IpHelpApiWrapper : IDisposable
         {
             records[k] = new
                 (
-                    localAddress: SpanBitConverter.ToUInt32(buffer, i + 0),
+                    localAddress: SpanByteConverter.ToUInt32(buffer, i + 0),
                     localPort: (ushort)((buffer[i + 4] << 8) + buffer[i + 5]),
-                    processId: SpanBitConverter.ToInt32(buffer, i + 8),
-                    createTimestamp: SpanBitConverter.ToInt64(buffer, i + 16),
+                    processId: SpanByteConverter.ToInt32(buffer, i + 8),
+                    createTimestamp: SpanByteConverter.ToInt64(buffer, i + 16),
                     specificPortBind: buffer[i + 24] == 1,
-                    flags: SpanBitConverter.ToInt32(buffer, i + 28),
+                    flags: SpanByteConverter.ToInt32(buffer, i + 28),
                     moduleInfo: loadModuleInfo ? MemoryMarshal.Cast<byte, ulong>(buffer.Slice(32, 128)).ToArray() : Array.Empty<ulong>()
                 );
         }
@@ -667,7 +667,7 @@ public sealed class IpHelpApiWrapper : IDisposable
         {
             records[k] = new
                 (
-                    localAddress: SpanBitConverter.ToUInt32(buffer, i + 0),
+                    localAddress: SpanByteConverter.ToUInt32(buffer, i + 0),
                     localPort: (ushort)((buffer[i + 4] << 8) + buffer[i + 5])
                 );
         }
@@ -729,9 +729,9 @@ public sealed class IpHelpApiWrapper : IDisposable
             records[k] = new
                 (
                     localAddress: buffer[(i + 0)..(i + 16)].ToArray(),
-                    localScopeId: SpanBitConverter.ToUInt32(buffer, i + 16),
+                    localScopeId: SpanByteConverter.ToUInt32(buffer, i + 16),
                     localPort: (ushort)((buffer[i + 20] << 8) + buffer[i + 21]),
-                    processId: SpanBitConverter.ToInt32(buffer, i + 24)
+                    processId: SpanByteConverter.ToInt32(buffer, i + 24)
                 );
         }
         return records;
@@ -777,12 +777,12 @@ public sealed class IpHelpApiWrapper : IDisposable
             records[k] = new
                 (
                     localAddress: buffer[(i + 0)..(i + 16)].ToArray(),
-                    localScopeId: SpanBitConverter.ToUInt32(buffer, i + 16),
+                    localScopeId: SpanByteConverter.ToUInt32(buffer, i + 16),
                     localPort: (ushort)((buffer[i + 20] << 8) + buffer[i + 21]),
-                    processId: SpanBitConverter.ToInt32(buffer, i + 24),
-                    createTimestamp: SpanBitConverter.ToInt64(buffer, i + 32),
+                    processId: SpanByteConverter.ToInt32(buffer, i + 24),
+                    createTimestamp: SpanByteConverter.ToInt64(buffer, i + 32),
                     specificPortBind: buffer[i + 40] == 1,
-                    flags: SpanBitConverter.ToInt32(buffer, i + 44),
+                    flags: SpanByteConverter.ToInt32(buffer, i + 44),
                     moduleInfo: loadModuleInfo ? MemoryMarshal.Cast<byte, ulong>(buffer.Slice(48, 128)).ToArray() : Array.Empty<ulong>()
                 );
         }
@@ -829,7 +829,7 @@ public sealed class IpHelpApiWrapper : IDisposable
             records[k] = new
                 (
                     localAddress: buffer[(i + 0)..(i + 16)].ToArray(),
-                    localScopeId: SpanBitConverter.ToUInt32(buffer, i + 16),
+                    localScopeId: SpanByteConverter.ToUInt32(buffer, i + 16),
                     localPort: (ushort)((buffer[i + 20] << 8) + buffer[i + 21])
                 );
         }
@@ -894,8 +894,8 @@ public sealed class IpHelpApiWrapper : IDisposable
             records[k] = new
                 (
                     physicalAddress: buffer[(i + 8)..(i + 14)].ToArray(),
-                    ipAddress: SpanBitConverter.ToUInt32(buffer, i + 16),
-                    netType: (IpNetType)SpanBitConverter.ToUInt32(buffer, i + 20)
+                    ipAddress: SpanByteConverter.ToUInt32(buffer, i + 16),
+                    netType: (IpNetType)SpanByteConverter.ToUInt32(buffer, i + 20)
                 );
         }
         return records;
@@ -954,11 +954,11 @@ public sealed class IpHelpApiWrapper : IDisposable
         {
             records[k] = new
                 (
-                    ipAddress: SpanBitConverter.ToUInt32(buffer, i),
-                    interfaceIndex: SpanBitConverter.ToUInt32(buffer, i + 4),
-                    mask: SpanBitConverter.ToUInt32(buffer, i + 8),
-                    broadcastAddress: SpanBitConverter.ToUInt32(buffer, i + 12),
-                    maxReassembleSize: SpanBitConverter.ToUInt32(buffer, i + 16)
+                    ipAddress: SpanByteConverter.ToUInt32(buffer, i),
+                    interfaceIndex: SpanByteConverter.ToUInt32(buffer, i + 4),
+                    mask: SpanByteConverter.ToUInt32(buffer, i + 8),
+                    broadcastAddress: SpanByteConverter.ToUInt32(buffer, i + 12),
+                    maxReassembleSize: SpanByteConverter.ToUInt32(buffer, i + 16)
                 );
         }
         return records;
@@ -1823,10 +1823,10 @@ public sealed class InterfaceAddressRecord
 }
 
 /// <summary>
-/// Provides span bit conversions with indexes (BitConverter doesnt support indexes)
+/// Provides span byte conversions with indexes (BitConverter doesnt support indexes)
 /// I am not sure how should it be done properly, maybe extension?
 /// </summary>
-internal sealed class SpanBitConverter
+internal sealed class SpanByteConverter
 {
 
     public static int ToInt32<TFrom>(Span<TFrom> span, int index = 0)
