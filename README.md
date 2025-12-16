@@ -187,4 +187,4 @@ Static functions use stack allocated memory. It's impossible to store this memor
 
 Above said only applies to BROWSER-HIDDEN functions, non browser-hidden functions are safe and fast to use.
 
-Static function use internal (only for compiled use) function `GetPinnableReference()`, so if the dotnet removes it, it would be impossible to implmenet stack allocation.
+Static function use internal (only for compiler use) function `GetPinnableReference()`, so if the dotnet removes it, it would be impossible to implmenet stack allocation.
